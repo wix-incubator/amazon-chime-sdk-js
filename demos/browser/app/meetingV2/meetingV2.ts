@@ -17,27 +17,30 @@ import {
   DataMessage,
   DefaultActiveSpeakerPolicy,
   DefaultAudioMixController,
+  DefaultBrowserBehavior,
   DefaultDeviceController,
   DefaultMeetingSession,
   DefaultModality,
-  DefaultBrowserBehavior,
+  DefaultVideoTransformDevice,
   Device,
   DeviceChangeObserver,
-  EventName,
   EventAttributes,
-  LogLevel,
+  EventName,
   Logger,
-  MultiLogger,
+  LogLevel,
   MeetingSession,
   MeetingSessionConfiguration,
   MeetingSessionPOSTLogger,
   MeetingSessionStatus,
   MeetingSessionStatusCode,
   MeetingSessionVideoAvailability,
+  MultiLogger,
+  NoOpVideoFrameProcessor,
   RemovableAnalyserNode,
   SimulcastLayers,
   TimeoutScheduler,
   Versioning,
+  VideoFrameProcessor,
   VideoInputDevice,
   VideoSource,
   VideoTileState,
@@ -47,6 +50,9 @@ import {
   isAudioTransformDevice,
 } from '../../../../src/index';
 import WebRTCStatsCollector from './webrtcstatscollector/WebRTCStatsCollector';
+import EmojifyVideoFrameProcessor from './videofilter/EmojifyVideoFrameProcessor';
+import CircularCut from './videofilter/CircularCut';
+import FaceTrackingProcessor from './videofilter/FaceTrackingProcessor';
 
 class DemoTileOrganizer {
   // this is index instead of length
@@ -103,6 +109,16 @@ const VOICE_FOCUS_SPEC = {
   revisionID: VOICE_FOCUS_REVISION_ID,
   paths: VOICE_FOCUS_PATHS,
 };
+
+type VideoFilterName = 'Emojify' | 'CircularCut' | 'NoOp' | 'None' | 'Segmentation';
+
+const VIDEO_FILTERS: VideoFilterName[] = [
+  'Emojify',
+  'CircularCut',
+  'Segmentation',
+  'NoOp',
+];
+
 
 class TestSound {
   constructor(
@@ -216,6 +232,7 @@ export class DemoMeetingApp implements
     'button-content-share': false,
     'button-pause-content-share': false,
     'button-video-stats': false,
+    'button-video-filter': false,
   };
 
   contentShareType: ContentShareType = ContentShareType.ScreenCapture;
@@ -244,6 +261,10 @@ export class DemoMeetingApp implements
   // will be updated when the Amazon Voice Focus display state changes.
   voiceFocusDisplayables: HTMLElement[] = [];
   analyserNode: RemovableAnalyserNode;
+
+  chosenVideoTransformDevice: DefaultVideoTransformDevice;
+  chosenVideoFilter: VideoFilterName = 'None';
+  selectedVideoFilterItem: VideoFilterName = 'None';
 
   constructor() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -465,16 +486,18 @@ export class DemoMeetingApp implements
     const videoInputQuality = document.getElementById('video-input-quality') as HTMLSelectElement;
     videoInputQuality.addEventListener('change', async (_ev: Event) => {
       this.log('Video input quality is changed');
-      switch (videoInputQuality.value) {
-        case '360p':
-          this.audioVideo.chooseVideoInputQuality(640, 360, 15, 600);
-          break;
-        case '540p':
-          this.audioVideo.chooseVideoInputQuality(960, 540, 15, 1400);
-          break;
-        case '720p':
-          this.audioVideo.chooseVideoInputQuality(1280, 720, 15, 1400);
-          break;
+      if (!this.enableSimulcast) {
+        switch (videoInputQuality.value) {
+          case '360p':
+            this.audioVideo.chooseVideoInputQuality(640, 360, 15, 600);
+            break;
+          case '540p':
+            this.audioVideo.chooseVideoInputQuality(960, 540, 15, 1400);
+            break;
+          case '720p':
+            this.audioVideo.chooseVideoInputQuality(1280, 720, 15, 1400);
+            break;
+        }
       }
       try {
         await this.openVideoInputFromSelection(videoInput.value, true);
@@ -543,7 +566,7 @@ export class DemoMeetingApp implements
             await this.openVideoInputFromSelection(camera, false);
             this.audioVideo.startLocalVideoTile();
           } catch (err) {
-            this.log('no video input device selected');
+            this.log('Failed to start local video tile.', err);
           }
         } else {
           this.audioVideo.stopLocalVideoTile();
@@ -645,7 +668,7 @@ export class DemoMeetingApp implements
       new AsyncScheduler().start(async () => {
         (buttonMeetingEnd as HTMLButtonElement).disabled = true;
         await this.endMeeting();
-        this.leave();
+        await this.leave();
         (buttonMeetingEnd as HTMLButtonElement).disabled = false;
       });
     });
@@ -654,7 +677,7 @@ export class DemoMeetingApp implements
     buttonMeetingLeave.addEventListener('click', _e => {
       new AsyncScheduler().start(async () => {
         (buttonMeetingLeave as HTMLButtonElement).disabled = true;
-        this.leave();
+        await this.leave();
         (buttonMeetingLeave as HTMLButtonElement).disabled = false;
       });
     });
@@ -970,7 +993,9 @@ export class DemoMeetingApp implements
       this.meetingSession.audioVideo.setContentAudioProfile(AudioProfile.fullbandMusicMono());
     }
     this.audioVideo = this.meetingSession.audioVideo;
-
+    if (this.enableSimulcast) {
+      this.audioVideo.chooseVideoInputQuality(1280, 720, 15, 1400);
+    }
     this.audioVideo.addDeviceChangeObserver(this);
     this.setupDeviceLabelTrigger();
     await this.populateAllDeviceLists();
@@ -990,11 +1015,14 @@ export class DemoMeetingApp implements
     this.audioVideo.start();
   }
 
-  leave(): void {
+  async leave(): Promise<void> {
     this.statsCollector.resetStats();
     this.audioVideo.stop();
     this.voiceFocusDevice?.stop();
     this.voiceFocusDevice = undefined;
+
+    await this.chosenVideoTransformDevice?.stop();
+    this.chosenVideoTransformDevice = undefined;
     this.roster = {};
   }
 
@@ -1376,7 +1404,36 @@ export class DemoMeetingApp implements
   async populateAllDeviceLists(): Promise<void> {
     await this.populateAudioInputList();
     await this.populateVideoInputList();
+    await this.populateVideoFilterInputList();
     await this.populateAudioOutputList();
+  }
+
+
+  private async populateVideoFilterInputList(): Promise<void> {
+    const genericName = 'Filter';
+    let filters: VideoFilterName[] = ['None'];
+    if (this.defaultBrowserBehaviour.supportsCanvasCapturedStreamPlayback() && this.enableUnifiedPlanForChromiumBasedBrowsers) {
+      filters = filters.concat(VIDEO_FILTERS);
+    }
+    this.populateInMeetingDeviceList(
+      'dropdown-menu-filter',
+      genericName,
+      [],
+      filters,
+      undefined,
+      async (name: VideoFilterName) => {
+        this.selectedVideoFilterItem = name;
+        this.log(`clicking video filter ${this.selectedVideoFilterItem}`);
+        this.toggleButton('button-video-filter', this.selectedVideoFilterItem === 'None' ? 'off' : 'on');
+        if (this.isButtonOn('button-camera')) {
+          try {
+            await this.openVideoInputFromSelection(this.selectedVideoInput, false);
+          } catch (err) {
+            this.log('Failed to choose VideoTransformDevice', err);
+          }
+        }
+      }
+    );
   }
 
   async populateAudioInputList(): Promise<void> {
@@ -1645,13 +1702,12 @@ export class DemoMeetingApp implements
   }
 
   private selectedVideoInput: string | null = null;
-
   async openVideoInputFromSelection(selection: string | null, showPreview: boolean): Promise<void> {
     if (selection) {
       this.selectedVideoInput = selection;
     }
     this.log(`Switching to: ${this.selectedVideoInput}`);
-    const device = this.videoInputSelectionToDevice(this.selectedVideoInput);
+    const device = await this.videoInputSelectionToDevice(this.selectedVideoInput);
     if (device === null) {
       if (showPreview) {
         this.audioVideo.stopVideoPreviewForVideoInput(document.getElementById(
@@ -1753,11 +1809,7 @@ export class DemoMeetingApp implements
     return this.audioInputSelectionWithOptionalVoiceFocus(inner);
   }
 
-  private videoInputSelectionToDevice(value: string): VideoInputDevice {
-    if (this.isRecorder() || this.isBroadcaster()) {
-      return null;
-    }
-
+  private videoInputSelectionToIntrinsicDevice(value: string): Device {
     if (value === 'Blue') {
       return DefaultDeviceController.synthesizeVideoDevice('blue');
     }
@@ -1766,11 +1818,63 @@ export class DemoMeetingApp implements
       return DefaultDeviceController.synthesizeVideoDevice('smpte');
     }
 
-    if (value === 'None') {
-      return null;
+    return value;
+  }
+
+  private videoFilterToProcessor(videoFilter: VideoFilterName): VideoFrameProcessor | null {
+    this.log(`Choosing video filter ${videoFilter}`);
+
+    if (videoFilter === 'Emojify') {
+      return new EmojifyVideoFrameProcessor('🚀');
     }
 
-    return value;
+    if (videoFilter === 'CircularCut') {
+      return new CircularCut();
+    }
+
+    if (videoFilter === 'NoOp') {
+      return new NoOpVideoFrameProcessor();
+    }
+
+    if (videoFilter ==='Segmentation') {
+      return new FaceTrackingProcessor();
+    }
+
+    return null;
+  }
+
+  private async videoInputSelectionWithOptionalFilter(innerDevice: Device): Promise<VideoInputDevice> {
+    if (this.selectedVideoFilterItem === 'None') {
+      return innerDevice;
+    }
+    
+    if (this.chosenVideoTransformDevice && this.selectedVideoFilterItem === this.chosenVideoFilter) {
+      if (this.chosenVideoTransformDevice.getInnerDevice() !== innerDevice) {
+        // switching device
+        this.chosenVideoTransformDevice = this.chosenVideoTransformDevice.chooseNewInnerDevice(innerDevice);
+      }
+      return this.chosenVideoTransformDevice;
+    }
+    
+    // A different processor is selected then we need to discard old one and recreate
+    if (this.chosenVideoTransformDevice) {
+      await this.chosenVideoTransformDevice.stop();
+    }
+
+    const proc = this.videoFilterToProcessor(this.selectedVideoFilterItem);
+    this.chosenVideoFilter = this.selectedVideoFilterItem;
+    this.chosenVideoTransformDevice = new DefaultVideoTransformDevice(new ConsoleLogger('Demo'), innerDevice, [proc]);
+    return this.chosenVideoTransformDevice;
+  }
+
+  private async videoInputSelectionToDevice(
+    value: string,
+  ): Promise<VideoInputDevice> {
+    if (this.isRecorder() || this.isBroadcaster() || value === 'None') {
+      return null;
+    }
+    const intrinsicDevice = this.videoInputSelectionToIntrinsicDevice(value);
+    return await this.videoInputSelectionWithOptionalFilter(intrinsicDevice);
   }
 
   private initContentShareDropDownItems(): void {
