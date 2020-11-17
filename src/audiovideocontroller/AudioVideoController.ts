@@ -32,7 +32,12 @@ export default interface AudioVideoController extends AudioVideoControllerFacade
    * Restarts the local video device. The callback is called when the device
    * has been restarted.
    */
-  restartLocalVideo(callback: () => void): void;
+  restartLocalVideo(callback: () => void): boolean;
+
+  /**
+   * Replaces the local video device without an extra negotiation. Unified Plan is required.
+   */
+  replaceLocalVideo(callback: () => void): Promise<void>;
 
   /**
    * Restarts the local audio. This function assumes the peer connection is established and an active

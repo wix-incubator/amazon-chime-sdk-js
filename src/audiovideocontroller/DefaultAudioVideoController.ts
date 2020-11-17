@@ -483,6 +483,7 @@ export default class DefaultAudioVideoController
       await this.actionUpdate(true);
       callback();
     };
+
     const result = this.sessionStateController.perform(SessionStateControllerAction.Update, () => {
       restartVideo();
     });
@@ -490,6 +491,48 @@ export default class DefaultAudioVideoController
       result === SessionStateControllerTransitionResult.Transitioned ||
       result === SessionStateControllerTransitionResult.DeferredTransition
     );
+  }
+
+  async replaceLocalVideo(callback: () => void): Promise<void> {
+    let videoStream: MediaStream | null = null;
+    try {
+      videoStream = await this.mediaStreamBroker.acquireVideoInputStream();
+    } catch (error) {
+      this.logger.info('could not acquire video stream from mediaStreamBroker');
+    }
+    if (!videoStream || videoStream.getVideoTracks().length < 1) {
+      throw new Error('could not acquire video track');
+    }
+
+    const videoTrack = videoStream.getVideoTracks()[0];
+    if (!this.meetingSessionContext || !this.meetingSessionContext.peer) {
+      throw new Error('no active meeting and peer connection');
+    }
+
+    if (this.meetingSessionContext.browserBehavior.requiresUnifiedPlan()) {
+      await this.meetingSessionContext.transceiverController.setVideoInput(videoTrack);
+    } else {
+      throw new Error('cannot replace track on Plan B');
+    }
+
+    const localTile = this.meetingSessionContext.videoTileController.getLocalVideoTile();
+    if (localTile) {
+      const state = localTile.state();
+      const settings = videoStream.getVideoTracks()[0].getSettings();
+      // so tile update wil be fired.
+      localTile.bindVideoStream(
+        state.boundAttendeeId,
+        true,
+        videoStream,
+        settings.width,
+        settings.height,
+        state.streamId,
+        state.boundExternalUserId
+      );
+    }
+
+    this.meetingSessionContext.activeVideoInput = videoStream;
+    callback();
   }
 
   async restartLocalAudio(callback: () => void): Promise<void> {

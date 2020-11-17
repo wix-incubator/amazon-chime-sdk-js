@@ -25,6 +25,7 @@ import RemovableAnalyserNode from './RemovableAnalyserNode';
 import TypeError from './TypeError';
 import VideoInputDevice from './VideoInputDevice';
 import VideoQualitySettings from './VideoQualitySettings';
+import VideoTransformDevice, { isVideoTransformDevice } from './VideoTransformDevice';
 
 export default class DefaultDeviceController implements DeviceControllerBasedMediaStreamBroker {
   private static permissionDeniedOriginDetectionThresholdMs = 500;
@@ -43,6 +44,9 @@ export default class DefaultDeviceController implements DeviceControllerBasedMed
   private transform: { nodes: AudioNodeSubgraph | undefined; device: AudioTransformDevice };
 
   private activeDevices: { [kind: string]: DeviceSelection | null } = { audio: null, video: null };
+
+  // Save video transform device so when stopLocalVideoTile() is called we can release the transform device in entirety.
+  private videoDevice: VideoTransformDevice;
   private audioOutputDeviceId: string | null = null;
   private deviceChangeObservers: Set<DeviceChangeObserver> = new Set<DeviceChangeObserver>();
   private boundAudioVideoController: AudioVideoController | null;
@@ -173,8 +177,46 @@ export default class DefaultDeviceController implements DeviceControllerBasedMed
     this.setTransform(device, nodes);
   }
 
+  private async chooseVideoTransformInputDevice(device: VideoTransformDevice): Promise<void> {
+    if (this.videoDevice === device) {
+      this.logger.info('Used same video transform device');
+      return;
+    }
+
+    this.videoDevice = device;
+    const inner: Device = await device.intrinsicDevice();
+
+    // check if the current video device can be reused.
+    if (!this.isMediaStreamReusableByDeviceId(this.activeDevices['video']?.stream, inner)) {
+      // force a clean-replacement of video stream since controller might be switching cameras.
+      console.log('kenta choose input device');
+      await this.chooseInputIntrinsicDevice('video', inner, false, true);
+    } else {
+      // console.log('kenta stream is active', this.activeDevices['video'].stream.active);
+      // if (!(inner as MediaStream).id) {
+      //   await newMediaStream.getVideoTracks()[0].applyConstraints(inner as MediaTrackConstraints);
+      // }
+      // // transfer the owner of the acquired media stream back to VideoTransformDevice.
+      // // Controller own the entire VideoTransformDevice.
+      await device.applyProcessors(this.activeDevices['video'].stream);
+      await this.restartLocalVideoAfterSelection(null, false, true);
+    }
+  }
+
   async chooseVideoInputDevice(device: VideoInputDevice): Promise<void> {
+    if (isVideoTransformDevice(device)) {
+      this.logger.info(
+        `Choosing video transform device with inner ${JSON.stringify(
+          await device.intrinsicDevice()
+        )}}`
+      );
+      return this.chooseVideoTransformInputDevice(device);
+    }
     this.updateMaxBandwidthKbps();
+    if (this.videoDevice) {
+      this.videoDevice = null;
+      await this.restartLocalVideoAfterSelection(null, false, false);
+    }
     await this.chooseInputIntrinsicDevice('video', device, false);
     this.trace('chooseVideoInputDevice', device);
     this.pushVideoMeetingStateForPermissions(device);
@@ -370,22 +412,41 @@ export default class DefaultDeviceController implements DeviceControllerBasedMed
     } else {
       tracksToStop = mediaStreamToRelease.getTracks();
     }
+    // TODO:
+    // similar to WebAudio's stream, we need to release the actual input stream to really stop it.
+    if (mediaStreamToRelease === this.videoDevice?.outputMediaStream) {
+      console.log('kenta stopping output stream releaseMediaStream');
+      this.videoDevice.stop();
+      this.videoDevice = null;
+    }
+
+    tracksToStop = [];
+    if (this.isVideoTransformDeviceChosen()) {
+      console.log('kenta still using transform device');
+      return;
+    }
+
     for (const track of tracksToStop) {
       this.logger.info(`stopping ${track.kind} track`);
       track.stop();
     }
-    for (const kind in this.activeDevices) {
-      if (this.activeDevices[kind] && this.activeDevices[kind].stream === mediaStreamToRelease) {
-        this.activeDevices[kind] = null;
-        if (
-          kind === 'video' &&
-          this.boundAudioVideoController &&
-          this.boundAudioVideoController.videoTileController.hasStartedLocalVideoTile()
-        ) {
-          this.boundAudioVideoController.videoTileController.stopLocalVideoTile();
-        }
-      }
-    }
+
+    // for (const kind in this.activeDevices) {
+    //   if (this.activeDevices[kind] && this.activeDevices[kind].stream === mediaStreamToRelease) {
+    //     this.activeDevices[kind] = null;
+    //     if (
+    //       kind === 'video' &&
+    //       this.boundAudioVideoController &&
+    //       this.boundAudioVideoController.videoTileController.hasStartedLocalVideoTile()
+    //     ) {
+    //       this.boundAudioVideoController.videoTileController.stopLocalVideoTile();
+    //     }
+    //   }
+    // }
+  }
+
+  private isVideoTransformDeviceChosen(): boolean {
+    return !!this.videoDevice;
   }
 
   bindToAudioVideoController(audioVideoController: AudioVideoController): void {
@@ -739,22 +800,49 @@ export default class DefaultDeviceController implements DeviceControllerBasedMed
     return null;
   }
 
-  private restartLocalVideoAfterSelection(oldStream: MediaStream, fromAcquire: boolean): void {
+  private async restartLocalVideoAfterSelection(
+    oldStream: MediaStream,
+    fromAcquire: boolean,
+    fromVideoTransformDevice: boolean
+  ): Promise<void> {
     if (
       !fromAcquire &&
       this.boundAudioVideoController &&
       this.boundAudioVideoController.videoTileController.hasStartedLocalVideoTile()
     ) {
-      this.logger.info('restarting local video to switch to new device');
-      this.boundAudioVideoController.restartLocalVideo(() => {
-        // TODO: implement MediaStreamDestroyer
-        // tracks of oldStream should be stopped when video tile is disconnected from MediaStream
-        // otherwise, camera is still being accessed and we need to stop it here.
-        if (oldStream && oldStream.active) {
-          this.logger.warn('previous media stream is not stopped during restart video');
-          this.releaseMediaStream(oldStream);
-        }
-      });
+      if (fromVideoTransformDevice) {
+        // similar to `useWebaudio`, either Device or VideoTransformDevice, this.activeDevices['video'] saves the supplied inner Device.
+        // upon in-meeting switching to VideoTransformDevice, device controller releases old "supplied" stream and
+        // calls replaceLocalVideo to avoid a stop-start update which incorrectly releases this.activeDevices['video'].
+        await this.boundAudioVideoController.replaceLocalVideo(() => {
+          this.logger.info('successfully replaced video track for applying filter');
+          if (oldStream && oldStream.active) {
+            this.logger.warn('previous media stream is not stopped during restart video');
+            this.releaseMediaStream(oldStream);
+          }
+        });
+        // console.log('kenta restart local video');
+        // this.boundAudioVideoController.restartLocalVideo(() => {
+        //   // TODO: implement MediaStreamDestroyer
+        //   // tracks of oldStream should be stopped when video tile is disconnected from MediaStream
+        //   // otherwise, camera is still being accessed and we need to stop it here.
+        //   if (oldStream && oldStream.active) {
+        //     this.logger.warn('previous media stream is not stopped during restart video');
+        //     this.releaseMediaStream(oldStream);
+        //   }
+        // });
+      } else {
+        this.logger.info('restarting local video to switch to new device');
+        this.boundAudioVideoController.restartLocalVideo(() => {
+          // TODO: implement MediaStreamDestroyer
+          // tracks of oldStream should be stopped when video tile is disconnected from MediaStream
+          // otherwise, camera is still being accessed and we need to stop it here.
+          if (oldStream && oldStream.active) {
+            this.logger.warn('previous media stream is not stopped during restart video');
+            this.releaseMediaStream(oldStream);
+          }
+        });
+      }
     } else {
       this.releaseMediaStream(oldStream);
     }
@@ -793,7 +881,8 @@ export default class DefaultDeviceController implements DeviceControllerBasedMed
   private async chooseInputIntrinsicDevice(
     kind: string,
     device: Device,
-    fromAcquire: boolean
+    fromAcquire: boolean,
+    fromVideoTransformDevice: boolean = false
   ): Promise<void> {
     this.inputDeviceCount += 1;
     const callCount = this.inputDeviceCount;
@@ -913,7 +1002,7 @@ export default class DefaultDeviceController implements DeviceControllerBasedMed
         try {
           newDevice.stream = DefaultDeviceController.createEmptyAudioDevice() as MediaStream;
           newDevice.constraints = null;
-          await this.handleNewInputDevice(kind, newDevice, fromAcquire);
+          await this.handleNewInputDevice(kind, newDevice, fromAcquire, fromVideoTransformDevice);
         } catch (error) {
           this.logger.error(
             `failed to choose null ${kind} device. ${error.name}: ${error.message}`
@@ -925,14 +1014,15 @@ export default class DefaultDeviceController implements DeviceControllerBasedMed
     }
 
     this.logger.info(`got ${kind} device for constraints ${JSON.stringify(proposedConstraints)}`);
-    await this.handleNewInputDevice(kind, newDevice, fromAcquire);
+    await this.handleNewInputDevice(kind, newDevice, fromAcquire, fromVideoTransformDevice);
     return;
   }
 
   private async handleNewInputDevice(
     kind: string,
     newDevice: DeviceSelection,
-    fromAcquire: boolean
+    fromAcquire: boolean,
+    fromVideoTransformDevice: boolean
   ): Promise<void> {
     const oldStream: MediaStream | null = this.activeDevices[kind]
       ? this.activeDevices[kind].stream
@@ -941,7 +1031,11 @@ export default class DefaultDeviceController implements DeviceControllerBasedMed
     this.activeDevices[kind] = newDevice;
 
     if (kind === 'video') {
-      this.restartLocalVideoAfterSelection(oldStream, fromAcquire);
+      if (fromVideoTransformDevice) {
+        this.logger.info('apply processors to transform');
+        await this.videoDevice.applyProcessors(this.activeDevices['video'].stream);
+      }
+      await this.restartLocalVideoAfterSelection(oldStream, fromAcquire, fromVideoTransformDevice);
     } else {
       this.releaseMediaStream(oldStream);
 
@@ -1064,6 +1158,15 @@ export default class DefaultDeviceController implements DeviceControllerBasedMed
         return dest.stream;
       }
     }
+
+    if (kind === 'video') {
+      if (this.videoDevice) {
+        console.log('kenta output media stream', this.videoDevice.outputMediaStream);
+        return this.videoDevice.outputMediaStream;
+      } else {
+        console.log('kenta actual stream');
+      }
+    }
     let existingConstraints: MediaTrackConstraints | null = null;
     if (!this.activeDevices[kind]) {
       if (kind === 'audio') {
@@ -1093,6 +1196,19 @@ export default class DefaultDeviceController implements DeviceControllerBasedMed
 
   hasAppliedTransform(): boolean {
     return !!this.transform;
+  }
+
+  private isMediaStreamReusableByDeviceId(stream: MediaStream, device: Device): boolean {
+    if (!stream || !stream.active) {
+      return false;
+    }
+
+    if ((device as MediaStream).id) {
+    }
+
+    const settings = stream.getTracks()[0].getSettings();
+    // If a device does not specify deviceId, we have to assume the stream is not reusable.
+    return settings.deviceId === this.getIntrinsicDeviceIdStr(device);
   }
 
   private reconnectAudioInputs(): void {

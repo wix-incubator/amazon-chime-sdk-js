@@ -78,4 +78,7 @@ export default class DOMMockBehavior {
   audioContextCreateBufferSucceeds = true;
   createMediaStreamDestinationSuccess: boolean = true;
   isUnifiedPlanSupported: boolean = true;
+
+  videoElementStartPlayDelay = 25;
+  videoElementSetWidthHeightAttiributeDelay = 100;
 }

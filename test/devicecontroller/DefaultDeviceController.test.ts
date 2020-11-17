@@ -22,6 +22,8 @@ import NoOpLogger from '../../src/logger/NoOpLogger';
 import MediaDeviceProxyHandler from '../../src/mediadevicefactory/MediaDeviceProxyHandler';
 import TimeoutScheduler from '../../src/scheduler/TimeoutScheduler';
 import NoOpVideoElementFactory from '../../src/videoelementfactory/NoOpVideoElementFactory';
+import DefaultVideoTransformDevice from '../../src/videoframeprocessor/DefaultVideoTransformDevice';
+import NoOpVideoFrameProcessor from '../../src/videoframeprocessor/NoOpVideoFrameProcessor';
 import DefaultVideoTile from '../../src/videotile/DefaultVideoTile';
 import DOMMockBehavior from '../dommock/DOMMockBehavior';
 import DOMMockBuilder from '../dommock/DOMMockBuilder';
@@ -1033,6 +1035,124 @@ describe('DefaultDeviceController', () => {
         expect(e).to.be.instanceof(TypeError);
       }
       expect(handleEventSpy.called).to.be.true;
+    });
+
+    it('can fail to choose VideoTransformDevice when permission is denied', done => {
+      domMockBehavior.getUserMediaSucceeds = false;
+      domMockBehavior.getUserMediaResult = UserMediaState.PermissionDeniedError;
+      domMockBehavior.asyncWaitMs = 1500;
+      const processor = new NoOpVideoFrameProcessor();
+      const device = new DefaultVideoTransformDevice(logger, stringDeviceId, [processor]);
+      deviceController
+        .chooseVideoInputDevice(device)
+        .then(() => {})
+        .catch(e => {
+          expect(e.message).to.include('Permission denied by user');
+          done();
+        });
+    });
+
+    it('can choose same video transform device twice', done => {
+      domMockBehavior.getUserMediaSucceeds = true;
+      const mockVideoStream = new MediaStream();
+      // @ts-ignore
+      mockVideoStream.id = 'sample';
+      // @ts-ignore
+      const mockVideoTrack = new MediaStreamTrack('test', 'video');
+      mockVideoStream.addTrack(mockVideoTrack);
+      domMockBehavior.createElementCaptureStream = mockVideoStream;
+      const processor = new NoOpVideoFrameProcessor();
+      const device = new DefaultVideoTransformDevice(logger, stringDeviceId, [processor]);
+      deviceController.chooseVideoInputDevice(device).then(() => {});
+      new TimeoutScheduler(400).start(() => {
+        deviceController.chooseVideoInputDevice(device);
+      });
+
+      new TimeoutScheduler(400).start(() => {
+        deviceController.chooseVideoInputDevice(null);
+      });
+
+      new TimeoutScheduler(400).start(() => {
+        done();
+      });
+    });
+
+    it('can switch to VideoTransformDevice', done => {
+      domMockBehavior.getUserMediaSucceeds = true;
+      const mockVideoStream = new MediaStream();
+      // @ts-ignore
+      mockVideoStream.id = 'sample';
+      // @ts-ignore
+      mockVideoStream.active = true;
+      // @ts-ignore
+      const mockVideoTrack = new MediaStreamTrack('test', 'video');
+      mockVideoStream.addTrack(mockVideoTrack);
+      domMockBehavior.createElementCaptureStream = mockVideoStream;
+      deviceController.chooseVideoInputDevice(stringDeviceId).then(() => {});
+      const processor = new NoOpVideoFrameProcessor();
+      const device = new DefaultVideoTransformDevice(logger, stringDeviceId, [processor]);
+      new TimeoutScheduler(400).start(() => {
+        deviceController.chooseVideoInputDevice(device).then(() => {});
+      });
+
+      new TimeoutScheduler(400).start(() => {
+        deviceController.chooseVideoInputDevice(null);
+        done();
+      });
+    });
+
+    it('replaces the local video for VideoTransformDevice', async () => {
+      domMockBehavior.getUserMediaSucceeds = true;
+      const mockVideoStream = new MediaStream();
+      // @ts-ignore
+      mockVideoStream.id = 'sample';
+      // @ts-ignore
+      mockVideoStream.active = true;
+      // @ts-ignore
+      const mockVideoTrack = new MediaStreamTrack('test', 'video');
+      mockVideoStream.addTrack(mockVideoTrack);
+      domMockBehavior.createElementCaptureStream = mockVideoStream;
+      deviceController.chooseVideoInputDevice(stringDeviceId).then(() => {});
+      const processor = new NoOpVideoFrameProcessor();
+      const device = new DefaultVideoTransformDevice(logger, stringDeviceId, [processor]);
+      class TestAudioVideoController extends NoOpAudioVideoController {
+        async replaceLocalVideo(callback: () => void): Promise<void> {
+          callback();
+        }
+      }
+
+      audioVideoController = new TestAudioVideoController();
+      deviceController.bindToAudioVideoController(audioVideoController);
+      audioVideoController.videoTileController.startLocalVideoTile();
+
+      await deviceController.chooseVideoInputDevice(device);
+      await new Promise(resolve => setTimeout(resolve, 200));
+      await deviceController.chooseVideoInputDevice(null);
+    });
+
+    it('can choose VideoTransformDevice', done => {
+      domMockBehavior.getUserMediaSucceeds = true;
+      const mockVideoStream = new MediaStream();
+      // @ts-ignore
+      mockVideoStream.active = true;
+      // @ts-ignore
+      mockVideoStream.id = 'sample';
+      // @ts-ignore
+      const mockVideoTrack = new MediaStreamTrack('test', 'video');
+      mockVideoStream.addTrack(mockVideoTrack);
+      domMockBehavior.createElementCaptureStream = mockVideoStream;
+
+      deviceController.chooseVideoInputDevice(mockVideoStream).then(() => {});
+      const processor = new NoOpVideoFrameProcessor();
+      const device = new DefaultVideoTransformDevice(logger, mockVideoStream, [processor]);
+      deviceController.chooseVideoInputDevice(device).then(() => {});
+      new TimeoutScheduler(400).start(() => {
+        deviceController.chooseVideoInputDevice(null);
+      });
+
+      new TimeoutScheduler(400).start(() => {
+        done();
+      });
     });
   });
 
