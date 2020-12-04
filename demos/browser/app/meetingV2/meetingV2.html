@@ -272,6 +272,9 @@
           <button id="button-camera" type="button" class="btn btn-success" title="Toggle camera">
             ${require('../../node_modules/open-iconic/svg/video.svg').default}
           </button>
+          <button id="local-video" type="button" class="btn btn-success" title="Toggle camera">
+            ${require('../../node_modules/open-iconic/svg/video.svg').default}
+          </button>
           <div class="btn-group" role="group">
             <button id="button-camera-drop" type="button" class="btn btn-success dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Select camera"></button>
             <div id="dropdown-menu-camera" class="dropdown-menu dropdown-menu-right" aria-labelledby="button-camera-drop" x-placement="bottom-start" style="position: absolute; transform: translate3d(0px, 38px, 0px); top: 0px; left: 0px; will-change: transform;">
@@ -445,6 +448,7 @@
         </div>
       </div>
       <video id="content-share-video" crossOrigin="anonymous" style="display:none"></video>
+      <video id="share-video" crossOrigin="anonymous" style="display:none"></video>
     </div>
   </div>
 </div>

@@ -374,7 +374,7 @@ export class DemoMeetingApp implements
               true
             );
           } catch (err) {
-            this.log('no video input device selected');
+            this.log('0000 no video input device selected');
           }
           await this.openAudioOutputFromSelection();
           this.hideProgress('progress-authenticate');
@@ -456,7 +456,7 @@ export class DemoMeetingApp implements
       try {
         await this.openVideoInputFromSelection(videoInput.value, true);
       } catch (err) {
-        this.log('no video input device selected');
+        this.log('11111 no video input device selected');
       }
     });
 
@@ -477,7 +477,7 @@ export class DemoMeetingApp implements
       try {
         await this.openVideoInputFromSelection(videoInput.value, true);
       } catch (err) {
-        this.log('no video input device selected');
+        this.log('2222 no video input device selected');
       }
     });
 
@@ -538,15 +538,45 @@ export class DemoMeetingApp implements
             if (videoInput.value === 'None') {
               camera = this.cameraDeviceIds.length ? this.cameraDeviceIds[0] : 'None';
             }
+            console.error('camera ', camera);
             await this.openVideoInputFromSelection(camera, false);
             this.audioVideo.startLocalVideoTile();
           } catch (err) {
-            this.log('no video input device selected');
+            this.log('3333 no video input device selected');
           }
         } else {
+          console.error('this.canStartLocalVideo ', this.canStartLocalVideo);
           this.audioVideo.stopLocalVideoTile();
           this.hideTile(DemoTileOrganizer.MAX_TILES);
         }
+      });
+    });
+
+    const buttonLocalVideo = document.getElementById('local-video');
+    buttonLocalVideo.addEventListener('click', _e => {
+      new AsyncScheduler().start(async () => {
+        // const videoDevice = await this.audioVideo.listVideoInputDevices();
+        // console.warn(videoDevice);
+        // await this.audioVideo.chooseVideoInputDevice(videoDevice[0]);
+        await this.openVideoInputFromSelection('SMPTE Color Bars', false);
+
+        // await this.audioVideo.startLocalVideoTile();
+        // const video = document.getElementById('share-video') as HTMLVideoElement;
+        // video.src = DemoMeetingApp.testVideo;
+        // await video.play();
+        // var mediaStream :  MediaStream | null;
+        // console.error(video);
+        // console.error(video.src);
+        // console.error(video.srcObject);
+        // if(this.defaultBrowserBehaviour.hasFirefoxWebRTC()) {
+        //   // @ts-ignore
+        //   mediaStream = video.mozCaptureStream();
+        // } else {
+        //   // @ts-ignore
+        //   mediaStream = video.captureStream();
+        // }
+        // console.error(mediaStream);
+        // console.error(video.srcObject);
       });
     });
 
@@ -1461,7 +1491,7 @@ export class DemoMeetingApp implements
 
   async populateVideoInputList(): Promise<void> {
     const genericName = 'Camera';
-    const additionalDevices = ['None', 'Blue', 'SMPTE Color Bars'];
+    const additionalDevices = ['None', 'Blue', 'SMPTE Color Bars', 'PlayBackVideo'];
     this.populateDeviceList(
       'video-input',
       genericName,
@@ -1478,7 +1508,7 @@ export class DemoMeetingApp implements
         try {
           await this.openVideoInputFromSelection(name, false);
         } catch (err) {
-          this.log('no video input device selected');
+          this.log('4444 no video input device selected');
         }
       }
     );
@@ -1642,7 +1672,7 @@ export class DemoMeetingApp implements
       this.selectedVideoInput = selection;
     }
     this.log(`Switching to: ${this.selectedVideoInput}`);
-    const device = this.videoInputSelectionToDevice(this.selectedVideoInput);
+    const device = await this.videoInputSelectionToDevice(this.selectedVideoInput);
     if (device === null) {
       if (showPreview) {
         this.audioVideo.stopVideoPreviewForVideoInput(document.getElementById(
@@ -1661,6 +1691,10 @@ export class DemoMeetingApp implements
     }
     try {
       await this.audioVideo.chooseVideoInputDevice(device);
+      console.error('getLocalVideoTile() ', this.audioVideo.getLocalVideoTile());
+      console.error('getAllVideoTiles() ', this.audioVideo.getLocalVideoTile().state().boundVideoStream);
+      console.error('getAllRemoteVideoTiles() ', this.audioVideo.getAllRemoteVideoTiles());
+      console.error('getRemoteVideoSources() ', this.audioVideo.getRemoteVideoSources());
     } catch (e) {
       this.log(`failed to chooseVideoInputDevice ${device}`, e);
     }
@@ -1744,7 +1778,7 @@ export class DemoMeetingApp implements
     return this.audioInputSelectionWithOptionalVoiceFocus(inner);
   }
 
-  private videoInputSelectionToDevice(value: string): VideoInputDevice {
+  private async videoInputSelectionToDevice(value: string): Promise<VideoInputDevice> {
     if (this.isRecorder() || this.isBroadcaster()) {
       return null;
     }
@@ -1754,7 +1788,55 @@ export class DemoMeetingApp implements
     }
 
     if (value === 'SMPTE Color Bars') {
+      //return DefaultDeviceController.synthesizeVideoDevice('smpte');
+      const videoDevice = await this.audioVideo.listVideoInputDevices();
+      console.warn(videoDevice);
+      await this.audioVideo.chooseVideoInputDevice(videoDevice[0]);
+      await this.audioVideo.startLocalVideoTile();
+      const video = document.getElementById('share-video') as HTMLVideoElement;
+      video.src = DemoMeetingApp.testVideo;
+      await video.play();
+      var mediaStream :  MediaStream | null;
+      console.error(video);
+      console.error(video.src);
+      console.error(video.srcObject);
+      if(this.defaultBrowserBehaviour.hasFirefoxWebRTC()) {
+        // @ts-ignore
+        mediaStream = video.mozCaptureStream();
+      } else {
+        // @ts-ignore
+        mediaStream = video.captureStream();
+      }
+
+      console.error(mediaStream);
+      console.error(video.srcObject);
+      return mediaStream;
+    }
+
+    if (value === 'PlayBackVideo') {
       return DefaultDeviceController.synthesizeVideoDevice('smpte');
+      const videoDevice = await this.audioVideo.listVideoInputDevices();
+      console.warn(videoDevice);
+      await this.audioVideo.chooseVideoInputDevice(videoDevice[0]);
+      await this.audioVideo.startLocalVideoTile();
+      const video = document.getElementById('share-video') as HTMLVideoElement;
+      video.src = DemoMeetingApp.testVideo;
+      await video.play();
+      var mediaStream :  MediaStream | null;
+      console.error(video);
+      console.error(video.src);
+      console.error(video.srcObject);
+      if(this.defaultBrowserBehaviour.hasFirefoxWebRTC()) {
+        // @ts-ignore
+        mediaStream = video.mozCaptureStream();
+      } else {
+        // @ts-ignore
+        mediaStream = video.captureStream();
+      }
+
+      console.error(mediaStream);
+      console.error(video.srcObject);
+      return mediaStream;
     }
 
     if (value === 'None') {
@@ -1812,7 +1894,7 @@ export class DemoMeetingApp implements
         let mediaStream: MediaStream;
         if(this.defaultBrowserBehaviour.hasFirefoxWebRTC()) {
           // @ts-ignore
-          mediaStream = videoFile.mozCaptureStream();
+          mediaStream = videoFile.srcObject;
         } else {
           // @ts-ignore
           mediaStream = videoFile.captureStream();
@@ -1863,6 +1945,10 @@ export class DemoMeetingApp implements
 
   audioVideoDidStart(): void {
     this.log('session started');
+    new AsyncScheduler().start(async () => {
+      await this.selectAudioInputDeviceByName('440 Hz');
+      await this.openVideoInputFromSelection('SMPTE Color Bars', false);
+    });
   }
 
   audioVideoDidStop(sessionStatus: MeetingSessionStatus): void {
