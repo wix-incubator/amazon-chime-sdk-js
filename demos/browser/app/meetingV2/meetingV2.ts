@@ -245,6 +245,14 @@ export class DemoMeetingApp implements
   voiceFocusDisplayables: HTMLElement[] = [];
   analyserNode: RemovableAnalyserNode;
 
+  private sessionMeetingId: string | null = null;
+  private sessionAttendeeId: string | null = null;
+  private instanceId: string;
+  private loadTestStartTime: string;
+  private loadTestSessionName: string;
+  private setUsingPasscode: boolean;
+  private videoEnable: boolean;
+
   constructor() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (global as any).app = this;
@@ -266,6 +274,46 @@ export class DemoMeetingApp implements
     } else {
       this.switchToFlow('flow-authenticate');
     }
+    const queryString = window.location.search;
+    const urlParams = new URLSearchParams(queryString);
+
+    if(urlParams.has('meetingInfo') && urlParams.has('attendeeInfo')) {
+      const meetingInfo = JSON.parse(urlParams.get('meetingInfo'));
+      const attendeeInfo = JSON.parse(urlParams.get('attendeeInfo'));
+      console.log(meetingInfo);
+      console.log(attendeeInfo);
+      this.sessionMeetingId = meetingInfo.MeetingId;
+      this.sessionAttendeeId = attendeeInfo.AttendeeId;
+      this.videoEnable = attendeeInfo.VideoEnable;
+      (document.getElementById('inputMeeting') as HTMLInputElement).value = this.sessionMeetingId;
+      console.log('this.videoEnable', this.videoEnable);
+      (document.getElementById('inputName') as HTMLInputElement).value = typeof this.videoEnable;//this.sessionAttendeeId;
+    }
+
+    if(urlParams.has('setUsingPasscode') && urlParams.has('setUsingPasscode')) {
+      this.setUsingPasscode = JSON.parse(urlParams.get('setUsingPasscode'));
+    }
+
+    console.log(this.sessionMeetingId);
+    console.log(this.sessionAttendeeId);
+
+
+    this.instanceId = new URL(window.location.href).searchParams.get('instanceId');
+    this.loadTestStartTime = new URL(window.location.href).searchParams.get('loadTestStartTime');
+    this.loadTestSessionName = new URL(window.location.href).searchParams.get('loadTestSessionName');
+
+    console.log(this.instanceId, this.loadTestStartTime,  this.loadTestSessionName);
+    const timeToWaitMS = new URL(window.location.href).searchParams.get('timeToWaitMS');
+    const timeToWait = parseInt(timeToWaitMS, 10);
+    const meetingLeaveAfterMs = new URL(window.location.href).searchParams.get('meetingLeaveAfterMs');
+    const meetingLeaveAfter = parseInt(meetingLeaveAfterMs, 10);
+    setTimeout(() => {
+      document.getElementById('authenticate').click();
+    }, timeToWait);
+
+    setTimeout(() => {
+      document.getElementById('button-meeting-leave').click();
+    }, meetingLeaveAfter);
   }
 
   initParameters(): void {
@@ -368,7 +416,12 @@ export class DemoMeetingApp implements
 
           await this.initVoiceFocus();
 
-          this.switchToFlow('flow-devices');
+          //this.switchToFlow('flow-devices');
+          await this.join();
+          //this.audioVideo.chooseVideoInputDevice(null);
+          this.hideProgress('progress-join');
+          this.displayButtonStates();
+          this.switchToFlow('flow-meeting');
           await this.openAudioInputFromSelectionAndPreview();
           try {
             await this.openVideoInputFromSelection(
@@ -1651,7 +1704,7 @@ export class DemoMeetingApp implements
       this.selectedVideoInput = selection;
     }
     this.log(`Switching to: ${this.selectedVideoInput}`);
-    const device = this.videoInputSelectionToDevice(this.selectedVideoInput);
+    const device = await this.videoInputSelectionToDevice(this.selectedVideoInput);
     if (device === null) {
       if (showPreview) {
         this.audioVideo.stopVideoPreviewForVideoInput(document.getElementById(
@@ -1753,7 +1806,7 @@ export class DemoMeetingApp implements
     return this.audioInputSelectionWithOptionalVoiceFocus(inner);
   }
 
-  private videoInputSelectionToDevice(value: string): VideoInputDevice {
+  private async videoInputSelectionToDevice(value: string): Promise<VideoInputDevice> {
     if (this.isRecorder() || this.isBroadcaster()) {
       return null;
     }
@@ -1763,7 +1816,29 @@ export class DemoMeetingApp implements
     }
 
     if (value === 'SMPTE Color Bars') {
-      return DefaultDeviceController.synthesizeVideoDevice('smpte');
+      //return DefaultDeviceController.synthesizeVideoDevice('smpte');
+      const videoDevice = await this.audioVideo.listVideoInputDevices();
+      console.warn(videoDevice);
+      await this.audioVideo.chooseVideoInputDevice(videoDevice[0]);
+      await this.audioVideo.startLocalVideoTile();
+      const video = document.getElementById('share-video') as HTMLVideoElement;
+      video.src = DemoMeetingApp.testVideo;
+      await video.play();
+      var mediaStream :  MediaStream | null;
+      console.error(video);
+      console.error(video.src);
+      console.error(video.srcObject);
+      if(this.defaultBrowserBehaviour.hasFirefoxWebRTC()) {
+        // @ts-ignore
+        mediaStream = video.mozCaptureStream();
+      } else {
+        // @ts-ignore
+        mediaStream = video.captureStream();
+      }
+
+      console.error(mediaStream);
+      console.error(video.srcObject);
+      return mediaStream;
     }
 
     if (value === 'None') {
@@ -1853,13 +1928,27 @@ export class DemoMeetingApp implements
   }
 
   async authenticate(): Promise<string> {
-    let joinInfo = (await this.joinMeeting()).JoinInfo;
+    let joinInfo = (await this.getMeetingAttendeeInfo()).JoinInfo;
     const configuration = new MeetingSessionConfiguration(joinInfo.Meeting, joinInfo.Attendee);
     await this.initializeMeetingSession(configuration);
     const url = new URL(window.location.href);
     url.searchParams.set('m', this.meeting);
     history.replaceState({}, `${this.meeting}`, url.toString());
     return configuration.meetingId;
+  }
+
+  async getMeetingAttendeeInfo(): Promise<any> {
+    const meetingInfo = new URL(window.location.href).searchParams.get('meetingInfo');
+    const attendeeInfo = new URL(window.location.href).searchParams.get('attendeeInfo');
+    console.log(meetingInfo)
+    console.log(attendeeInfo)
+    return {
+      JoinInfo:
+        {
+          Meeting: JSON.parse(meetingInfo),
+          Attendee: JSON.parse(attendeeInfo),
+        },
+    }
   }
 
   log(str: string, ...args: any[]): void {
@@ -1872,6 +1961,11 @@ export class DemoMeetingApp implements
 
   audioVideoDidStart(): void {
     this.log('session started');
+    let audioDevice = this.setUsingPasscode === true ? 'None' : '440 Hz';
+    this.selectAudioInputDeviceByName(audioDevice);
+    if(this.videoEnable) {
+      this.openVideoInputFromSelection('SMPTE Color Bars', false);
+    }
   }
 
   audioVideoDidStop(sessionStatus: MeetingSessionStatus): void {
@@ -1908,9 +2002,13 @@ export class DemoMeetingApp implements
       if (!tileState.paused) {
         this.audioVideo.pauseVideoTile(tileState.tileId);
         pauseButtonElement.innerText = 'Resume';
+        const videoFile = document.getElementById('share-video') as HTMLVideoElement;
+        videoFile.pause();
       } else {
         this.audioVideo.unpauseVideoTile(tileState.tileId);
         pauseButtonElement.innerText = 'Pause';
+        const videoFile = document.getElementById('share-video') as HTMLVideoElement;
+        videoFile.play();
       }
     });
 
@@ -1918,7 +2016,7 @@ export class DemoMeetingApp implements
     this.audioVideo.bindVideoElement(tileState.tileId, videoElement);
     this.tileIndexToTileId[tileIndex] = tileState.tileId;
     this.tileIdToTileIndex[tileState.tileId] = tileIndex;
-    this.updateProperty(nameplateElement, 'innerText', tileState.boundExternalUserId.split('#')[1]);
+    this.updateProperty(nameplateElement, 'innerText', tileState.boundAttendeeId.split('#')[1]);
     this.updateProperty(attendeeIdElement, 'innerText', tileState.boundAttendeeId);
     this.showTile(tileElement, tileState);
     this.updateGridClasses();
