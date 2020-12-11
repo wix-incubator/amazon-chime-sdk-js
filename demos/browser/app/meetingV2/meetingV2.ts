@@ -27,7 +27,6 @@ import {
   EventAttributes,
   LogLevel,
   Logger,
-  MultiLogger,
   MeetingSession,
   MeetingSessionConfiguration,
   MeetingSessionPOSTLogger,
@@ -185,6 +184,8 @@ export class DemoMeetingApp implements
   static readonly MAX_MEETING_HISTORY_MS: number = 5 * 60 * 1000;
   static readonly DATA_MESSAGE_TOPIC: string = "chat";
   static readonly DATA_MESSAGE_LIFETIME_MS: number = 300000;
+  static readonly METRIC_FETCH_INTERVAL_MS: number = 1000;
+  static readonly CHECK_TIME_AFTER_MS: number = 50000;
 
   showActiveSpeakerScores = false;
   activeSpeakerLayout = true;
@@ -233,6 +234,7 @@ export class DemoMeetingApp implements
   lastMessageSender: string | null = null;
   lastReceivedMessageTimestamp = 0;
   meetingEventPOSTLogger: MeetingSessionPOSTLogger;
+  private meetingActive: boolean = false;
 
   hasChromiumWebRTC: boolean = this.defaultBrowserBehaviour.hasChromiumWebRTC();
 
@@ -252,6 +254,10 @@ export class DemoMeetingApp implements
   private loadTestSessionName: string;
   private setUsingPasscode: boolean;
   private videoEnable: boolean;
+  private meetingInfo: any = null;
+  private attendeeInfo: any = null;
+  private metricReport: any = {};
+  private logger: Logger;
 
   constructor() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -278,16 +284,15 @@ export class DemoMeetingApp implements
     const urlParams = new URLSearchParams(queryString);
 
     if(urlParams.has('meetingInfo') && urlParams.has('attendeeInfo')) {
-      const meetingInfo = JSON.parse(urlParams.get('meetingInfo'));
-      const attendeeInfo = JSON.parse(urlParams.get('attendeeInfo'));
-      console.log(meetingInfo);
-      console.log(attendeeInfo);
-      this.sessionMeetingId = meetingInfo.MeetingId;
-      this.sessionAttendeeId = attendeeInfo.AttendeeId;
-      this.videoEnable = attendeeInfo.VideoEnable;
+      this.meetingInfo = JSON.parse(urlParams.get('meetingInfo'));
+      this.attendeeInfo = JSON.parse(urlParams.get('attendeeInfo'));
+      console.log(this.meetingInfo);
+      console.log(this.attendeeInfo);
+      this.sessionMeetingId = this.meetingInfo.MeetingId;
+      this.sessionAttendeeId = this.attendeeInfo.AttendeeId;
+      this.videoEnable = this.attendeeInfo.VideoEnable;
       (document.getElementById('inputMeeting') as HTMLInputElement).value = this.sessionMeetingId;
-      console.log('this.videoEnable', this.videoEnable);
-      (document.getElementById('inputName') as HTMLInputElement).value = typeof this.videoEnable;//this.sessionAttendeeId;
+      (document.getElementById('inputName') as HTMLInputElement).value = this.sessionAttendeeId;
     }
 
     if(urlParams.has('setUsingPasscode') && urlParams.has('setUsingPasscode')) {
@@ -309,11 +314,67 @@ export class DemoMeetingApp implements
     const meetingLeaveAfter = parseInt(meetingLeaveAfterMs, 10);
     setTimeout(() => {
       document.getElementById('authenticate').click();
+      this.sendStatus('MeetingJoin', 1);
+      document.getElementById('authenticate').click();
     }, timeToWait);
 
     setTimeout(() => {
       document.getElementById('button-meeting-leave').click();
     }, meetingLeaveAfter);
+  }
+
+  async sendMetrics(metrics: any): Promise<void> {
+    metrics.mId = this.sessionMeetingId;
+    metrics.aId = this.sessionAttendeeId;
+    metrics.sId = this.loadTestSessionName;
+    metrics.iId = this.instanceId;
+    metrics.ltStartTime = new Date(parseInt(this.loadTestStartTime.toString()));
+    const body = JSON.stringify(metrics);
+    console.log(body);
+    try {
+      const response = await fetch(`${DemoMeetingApp.BASE_URL}send_metrics`, {
+        method: 'POST',
+        body
+      });
+      if (response.status === 200) {
+        console.log('Metrics Sent');
+      }
+    } catch (error) {
+      console.error(error.message);
+    }
+  }
+
+  async sendStatus(metricName: string, metricValue: number): Promise<void> {
+    const metricBody = {
+      metricName: metricName,
+      metricValue: metricValue
+    };
+    await this.sendMetrics(metricBody);
+  }
+
+  async getLoadTestStatus() {
+    setInterval(async () => {
+      try {
+        const url = DemoMeetingApp.BASE_URL + 'get_load_test_status';
+        console.error('11111 ', url);
+        const response = await fetch(url, {method: 'GET'});
+        console.error('010101 ', response);
+        console.error('3333 ', response.body);
+        console.error('4444 ',response.body.toString());
+        if (response.status === 200) {
+          const loadTestStatusResponse = await response.json();
+          console.error('5555 ',loadTestStatusResponse);
+          console.error('6666 ',loadTestStatusResponse.LoadTestStatus);
+          console.error('7777 ',loadTestStatusResponse.LoadTestStatus === 'Abort');
+          if (loadTestStatusResponse.LoadTestStatus === 'Abort') {
+            const buttonMeetingEnd = document.getElementById('button-meeting-end');
+            buttonMeetingEnd.click();
+          }
+        }
+      } catch (error) {
+        console.warn('[getLoadTestStatus] ' + error.message);
+      }
+    }, 2000);
   }
 
   initParameters(): void {
@@ -706,11 +767,34 @@ export class DemoMeetingApp implements
     const buttonMeetingLeave = document.getElementById('button-meeting-leave');
     buttonMeetingLeave.addEventListener('click', _e => {
       new AsyncScheduler().start(async () => {
+        const newRosterCount = Object.keys(this.roster).length;
+        if (newRosterCount === 1) {
+          await this.endMeeting();
+        }
+        (buttonMeetingLeave as HTMLButtonElement).disabled = true;
+        this.sendStatus('MeetingLeave', 1);
+
         (buttonMeetingLeave as HTMLButtonElement).disabled = true;
         this.leave();
         (buttonMeetingLeave as HTMLButtonElement).disabled = false;
       });
     });
+
+    setInterval(() => {
+      if (new Date().getMinutes() % 5 === 0 && this.meetingActive === true) {
+        this.log('Sending AlivePing when minutes is multiple of 5');
+        this.sendStatus('AlivePing', 1);
+
+      }
+    }, DemoMeetingApp.CHECK_TIME_AFTER_MS);
+
+    setInterval(() => {
+      console.log(this.metricReport);
+      if (Object.keys(this.metricReport).length > 0) { // && timeSinceStartOfLoadTest > 5500) {
+        this.log(this.metricReport);
+        this.sendMetrics(this.metricReport);
+      }
+    }, DemoMeetingApp.METRIC_FETCH_INTERVAL_MS);
   }
 
   getSupportedMediaRegions(): Array<string> {
@@ -860,34 +944,107 @@ export class DemoMeetingApp implements
     this.log(`One or more video streams are not receiving expected amounts of data ${JSON.stringify(videoReceivingReports)}`);
   }
 
-  metricsDidReceive(clientMetricReport: ClientMetricReport): void {
+
+  async metricsDidReceive(clientMetricReport: ClientMetricReport): Promise<void> {
     const metricReport = clientMetricReport.getObservableMetrics();
+    if (typeof metricReport.audioDecoderLoss === 'number' && !isNaN(metricReport.audioDecoderLoss)) {
+      (document.getElementById('audioDecoderLoss') as HTMLSpanElement).innerText = String(metricReport.audioDecoderLoss);
+    }
+    if (typeof metricReport.audioPacketsReceived === 'number' && !isNaN(metricReport.audioPacketsReceived)) {
+      (document.getElementById('audioPacketsReceived') as HTMLSpanElement).innerText = String(metricReport.audioPacketsReceived);
+    }
+    if (typeof metricReport.audioPacketsReceivedFractionLoss === 'number' && !isNaN(metricReport.audioPacketsReceivedFractionLoss)) {
+      (document.getElementById('audioPacketsReceivedFractionLoss') as HTMLSpanElement).innerText = String(metricReport.audioPacketsReceivedFractionLoss);
+    }
+    if (typeof metricReport.audioSpeakerDelayMs === 'number' && !isNaN(metricReport.audioSpeakerDelayMs)) {
+      (document.getElementById('audioSpeakerDelayMs') as HTMLSpanElement).innerText = String(metricReport.audioSpeakerDelayMs);
+    }
+    if (typeof metricReport.availableReceiveBandwidth === 'number' && !isNaN(metricReport.availableReceiveBandwidth)) {
+      (document.getElementById('availableReceiveBandwidth') as HTMLSpanElement).innerText = String(metricReport.availableReceiveBandwidth);
+    }
+    if (typeof metricReport.availableSendBandwidth === 'number' && !isNaN(metricReport.availableSendBandwidth)) {
+      (document.getElementById('availableSendBandwidth') as HTMLSpanElement).innerText = String(metricReport.availableSendBandwidth);
+    }
+
+    let outboundBandwidth = 0;
+    let inboundBandwidth = 0;
     if (typeof metricReport.availableSendBandwidth === 'number' && !isNaN(metricReport.availableSendBandwidth)) {
       (document.getElementById('video-uplink-bandwidth') as HTMLSpanElement).innerText =
         'Available Uplink Bandwidth: ' + String(metricReport.availableSendBandwidth / 1000) + ' Kbps';
+      outboundBandwidth = metricReport.availableSendBandwidth / 1000;
     } else if (typeof metricReport.availableOutgoingBitrate === 'number' && !isNaN(metricReport.availableOutgoingBitrate)) {
       (document.getElementById('video-uplink-bandwidth') as HTMLSpanElement).innerText =
         'Available Uplink Bandwidth: ' + String(metricReport.availableOutgoingBitrate / 1000) + ' Kbps';
+      outboundBandwidth = metricReport.availableOutgoingBitrate / 1000;
     } else {
       (document.getElementById('video-uplink-bandwidth') as HTMLSpanElement).innerText =
         'Available Uplink Bandwidth: Unknown';
+      outboundBandwidth = 0;
     }
 
     if (typeof metricReport.availableReceiveBandwidth === 'number' && !isNaN(metricReport.availableReceiveBandwidth)) {
       (document.getElementById('video-downlink-bandwidth') as HTMLSpanElement).innerText =
         'Available Downlink Bandwidth: ' + String(metricReport.availableReceiveBandwidth / 1000) + ' Kbps';
+      inboundBandwidth = metricReport.availableReceiveBandwidth / 1000;
     } else if (typeof metricReport.availableIncomingBitrate === 'number' && !isNaN(metricReport.availableIncomingBitrate)) {
       (document.getElementById('video-downlink-bandwidth') as HTMLSpanElement).innerText =
         'Available Downlink Bandwidth: ' + String(metricReport.availableIncomingBitrate / 1000) + ' Kbps';
+      inboundBandwidth = metricReport.availableIncomingBitrate / 1000;
     } else {
       (document.getElementById('video-downlink-bandwidth') as HTMLSpanElement).innerText =
         'Available Downlink Bandwidth: Unknown';
+      inboundBandwidth = 0;
     }
+    (document.getElementById('inboundBandwidth') as HTMLSpanElement).innerText = String(inboundBandwidth);
+    (document.getElementById('outboundBandwidth') as HTMLSpanElement).innerText = String(outboundBandwidth);
 
-    this.hasChromiumWebRTC &&
-    this.isButtonOn('button-video-stats') &&
-    this.getAndShowWebRTCStats();
+    if (typeof metricReport.audioPacketsReceived === 'number') {
+      delete metricReport.availableOutgoingBitrate;
+      delete metricReport.availableIncomingBitrate;
+      delete metricReport.nackCountReceivedPerSecond;
+      delete metricReport.googNackCountReceivedPerSecond;
+      delete metricReport.videoUpstreamBitrate;
+      delete metricReport.videoPacketSentPerSecond;
+      delete metricReport.availableSendBandwidth;
+      metricReport.outboundBandwidth = outboundBandwidth;
+      metricReport.inboundBandwidth = inboundBandwidth;
+      this.metricReport = {
+        metricBody: metricReport,
+      };
+      //console.log(this.metricReport);
+    } else {
+      this.log(`{'...empty...'}`);
+    }
   }
+
+  // metricsDidReceive(clientMetricReport: ClientMetricReport): void {
+  //   const metricReport = clientMetricReport.getObservableMetrics();
+  //   if (typeof metricReport.availableSendBandwidth === 'number' && !isNaN(metricReport.availableSendBandwidth)) {
+  //     (document.getElementById('video-uplink-bandwidth') as HTMLSpanElement).innerText =
+  //       'Available Uplink Bandwidth: ' + String(metricReport.availableSendBandwidth / 1000) + ' Kbps';
+  //   } else if (typeof metricReport.availableOutgoingBitrate === 'number' && !isNaN(metricReport.availableOutgoingBitrate)) {
+  //     (document.getElementById('video-uplink-bandwidth') as HTMLSpanElement).innerText =
+  //       'Available Uplink Bandwidth: ' + String(metricReport.availableOutgoingBitrate / 1000) + ' Kbps';
+  //   } else {
+  //     (document.getElementById('video-uplink-bandwidth') as HTMLSpanElement).innerText =
+  //       'Available Uplink Bandwidth: Unknown';
+  //   }
+  //
+  //   if (typeof metricReport.availableReceiveBandwidth === 'number' && !isNaN(metricReport.availableReceiveBandwidth)) {
+  //     (document.getElementById('video-downlink-bandwidth') as HTMLSpanElement).innerText =
+  //       'Available Downlink Bandwidth: ' + String(metricReport.availableReceiveBandwidth / 1000) + ' Kbps';
+  //   } else if (typeof metricReport.availableIncomingBitrate === 'number' && !isNaN(metricReport.availableIncomingBitrate)) {
+  //     (document.getElementById('video-downlink-bandwidth') as HTMLSpanElement).innerText =
+  //       'Available Downlink Bandwidth: ' + String(metricReport.availableIncomingBitrate / 1000) + ' Kbps';
+  //   } else {
+  //     (document.getElementById('video-downlink-bandwidth') as HTMLSpanElement).innerText =
+  //       'Available Downlink Bandwidth: Unknown';
+  //   }
+  //
+  //   this.hasChromiumWebRTC &&
+  //   this.isButtonOn('button-video-stats') &&
+  //   this.getAndShowWebRTCStats();
+  // }
 
   getAndShowWebRTCStats() {
     const videoTiles = this.audioVideo.getAllVideoTiles();
@@ -979,42 +1136,26 @@ export class DemoMeetingApp implements
   }
 
   async initializeMeetingSession(configuration: MeetingSessionConfiguration): Promise<void> {
-    let logger: Logger;
+    
     const logLevel = LogLevel.INFO;
-    const consoleLogger = logger = new ConsoleLogger('SDK', logLevel);
-    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
-      logger = consoleLogger;
-    } else {
-      await Promise.all([
-        this.createLogStream(configuration, 'create_log_stream'),
-        this.createLogStream(configuration, 'create_browser_event_log_stream')
-      ]);
+    await this.getLoadTestStatus();
+    //const consoleLogger = logger = new ConsoleLogger('SDK', logLevel);
+    await this.createLogStream(configuration, 'create_log_stream');
 
-      logger = new MultiLogger(
-        consoleLogger,
-        new MeetingSessionPOSTLogger(
-          'SDK',
-          configuration,
-          DemoMeetingApp.LOGGER_BATCH_SIZE,
-          DemoMeetingApp.LOGGER_INTERVAL_MS,
-          `${DemoMeetingApp.BASE_URL}logs`,
-          logLevel
-        ),
-      );
-      this.meetingEventPOSTLogger = new MeetingSessionPOSTLogger(
-        'SDKEvent',
+    this.logger = new MeetingSessionPOSTLogger(
+        'SDK',
         configuration,
         DemoMeetingApp.LOGGER_BATCH_SIZE,
         DemoMeetingApp.LOGGER_INTERVAL_MS,
-        `${DemoMeetingApp.BASE_URL}log_meeting_event`,
+        `${DemoMeetingApp.BASE_URL}logs`,
         logLevel
       );
-    }
-    const deviceController = new DefaultDeviceController(logger, { enableWebAudio: this.enableWebAudio });
+
+    const deviceController = new DefaultDeviceController(this.logger, { enableWebAudio: this.enableWebAudio });
     configuration.enableUnifiedPlanForChromiumBasedBrowsers = this.enableUnifiedPlanForChromiumBasedBrowsers;
     configuration.attendeePresenceTimeoutMs = 5000;
     configuration.enableSimulcastForUnifiedPlanChromiumBasedBrowsers = this.enableSimulcast;
-    this.meetingSession = new DefaultMeetingSession(configuration, logger, deviceController);
+    this.meetingSession = new DefaultMeetingSession(configuration, this.logger, deviceController);
     if ((document.getElementById('fullband-speech-mono-quality') as HTMLInputElement).checked) {
       this.meetingSession.audioVideo.setAudioProfile(AudioProfile.fullbandSpeechMono());
       this.meetingSession.audioVideo.setContentAudioProfile(AudioProfile.fullbandSpeechMono());
@@ -1285,6 +1426,7 @@ export class DemoMeetingApp implements
     await fetch(`${DemoMeetingApp.BASE_URL}end?title=${encodeURIComponent(this.meeting)}`, {
       method: 'POST',
     });
+    this.sendStatus('MeetingDelete', 1);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1516,7 +1658,7 @@ export class DemoMeetingApp implements
 
   async populateVideoInputList(): Promise<void> {
     const genericName = 'Camera';
-    const additionalDevices = ['None', 'Blue', 'SMPTE Color Bars'];
+    const additionalDevices = ['None', 'Blue', 'SMPTE Color Bars', 'Play Video'];
     this.populateDeviceList(
       'video-input',
       genericName,
@@ -1815,7 +1957,7 @@ export class DemoMeetingApp implements
       return DefaultDeviceController.synthesizeVideoDevice('blue');
     }
 
-    if (value === 'SMPTE Color Bars') {
+    if (value === 'Play Video') {
       //return DefaultDeviceController.synthesizeVideoDevice('smpte');
       const videoDevice = await this.audioVideo.listVideoInputDevices();
       console.warn(videoDevice);
@@ -1938,38 +2080,51 @@ export class DemoMeetingApp implements
   }
 
   async getMeetingAttendeeInfo(): Promise<any> {
-    const meetingInfo = new URL(window.location.href).searchParams.get('meetingInfo');
-    const attendeeInfo = new URL(window.location.href).searchParams.get('attendeeInfo');
-    console.log(meetingInfo)
-    console.log(attendeeInfo)
     return {
       JoinInfo:
         {
-          Meeting: JSON.parse(meetingInfo),
-          Attendee: JSON.parse(attendeeInfo),
+          Meeting: this.meetingInfo,
+          Attendee: this.attendeeInfo,
         },
     }
   }
 
   log(str: string, ...args: any[]): void {
+    if (this.logger !== null) {
+      this.logger.info(str);
+    }
     console.log.apply(console, [`[DEMO] ${str}`, ...args]);
   }
 
   audioVideoDidStartConnecting(reconnecting: boolean): void {
     this.log(`session connecting. reconnecting: ${reconnecting}`);
+    if (reconnecting === true) {
+      this.log('ReconnectingSession');
+      this.sendStatus('ReconnectingSession', 1);
+    } else {
+      this.log('ConnectingSession');
+      this.sendStatus('ConnectingSession', 1);
+    }
   }
 
   audioVideoDidStart(): void {
-    this.log('session started');
     let audioDevice = this.setUsingPasscode === true ? 'None' : '440 Hz';
     this.selectAudioInputDeviceByName(audioDevice);
     if(this.videoEnable) {
-      this.openVideoInputFromSelection('SMPTE Color Bars', false);
+      this.openVideoInputFromSelection('Play Video', false);
     }
+    this.log('MeetingStarted');
+    this.meetingActive = true;
+    this.sendStatus('MeetingStarted', 1);
   }
 
   audioVideoDidStop(sessionStatus: MeetingSessionStatus): void {
     this.log(`session stopped from ${JSON.stringify(sessionStatus)}`);
+    this.log(`SessionStopped from ${JSON.stringify(sessionStatus)}`);
+    const statusCode = sessionStatus.statusCode();
+    this.meetingActive = false;
+    this.sendStatus('StatusCode-' + statusCode, 1);
+    this.log('StatusCode: ' + statusCode + 'instanceId: ' + this.instanceId);
     this.log(`resetting stats in WebRTCStatsCollector`);
     this.statsCollector.resetStats();
     if (sessionStatus.statusCode() === MeetingSessionStatusCode.AudioCallEnded) {

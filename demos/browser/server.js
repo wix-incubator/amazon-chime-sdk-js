@@ -1,12 +1,28 @@
-// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2019-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 const AWS = require('aws-sdk');
+AWS.config.region = 'us-east-1';
 const compression = require('compression');
 const fs = require('fs');
 const http = require('http');
 const url = require('url');
 const { v4: uuidv4 } = require('uuid');
+const { exec } = require('child_process');
+require('events').EventEmitter.prototype._maxListeners = Infinity;
+const { metricScope } = require("aws-embedded-metrics");
+const fetch = require('node-fetch');
+let lock = false;
+AWS.config.region = 'us-east-1';
+const cloudWatch = new AWS.CloudWatch({
+  apiVersion: '2010-08-01'
+});
+const cloudWatchClient = new AWS.CloudWatchLogs({
+  apiVersion: '2014-03-28'
+});
+const s3 = new AWS.S3({
+  apiVersion: '2006-03-01'
+});
 
 // Store created meetings in a map so attendees can join by meeting title
 const meetingTable = {};
@@ -32,9 +48,20 @@ http.createServer({}, async (request, response) => {
     // Enable HTTP compression
     compression({})(request, response, () => {});
     const requestUrl = url.parse(request.url, true);
+    const logGroupName = 'ChimeBrowserLogs';
+    const requestBody = await getRequestBody(request);
+
     if (request.method === 'GET' && requestUrl.pathname === '/') {
       // Return the contents of the index page
       respond(response, 200, 'text/html', indexPage);
+    } else if (request.method === 'POST' && requestUrl.pathname === '/create_log_stream') {
+      await createLogStream(logGroupName, requestBody);
+    } else if (requestUrl.pathname === '/get_load_test_status') {
+      await getLoadTestStatus(response);
+    } else if (request.method === 'POST' && requestUrl.pathname === '/logs') {
+      await logsEndpoint(logGroupName, requestBody, response);
+    } else if (request.method === 'POST' && requestUrl.pathname === '/send_metrics') {
+      await sendMetrics(requestBody, response);
     } else if (process.env.DEBUG && request.method === 'POST' && requestUrl.pathname === '/join') {
       // For internal debugging - ignore this.
       respond(response, 201, 'application/json', JSON.stringify(require('./debug.js').debug(requestUrl.query), null, 2));
@@ -108,13 +135,167 @@ http.createServer({}, async (request, response) => {
 function log(message) {
   console.log(`${new Date().toISOString()} ${message}`);
 };
-
-function respond(response, statusCode, contentType, body, skipLogging = false) {
-  response.statusCode = statusCode;
-  response.setHeader('Content-Type', contentType);
-  response.end(body);
-  if (contentType === 'application/json' && !skipLogging) {
-    log(body);
+function respond(response, statusCode, contentType, body) {
+  try {
+    if (lock === false) {
+      lock = true;
+      response.statusCode = statusCode;
+      response.setHeader('Content-Type', contentType);
+      response.end(body);
+      if (contentType === 'application/json') {
+        log(body);
+      }
+    }
+  } catch (err) {
+    console.log('respond failes with err:' + err);
+  } finally {
+    lock = false;
   }
 }
 
+async function getRequestBody(request) {
+  const requestBody = await new Promise((resolve, reject) => {
+    let rBody = '';
+    let requestBody = '';
+    request.on('error', (err) => {
+    }).on('data', (chunk) => {
+      rBody = chunk.toString();
+    }).on('end', () => {
+      requestBody += rBody;
+      resolve(requestBody);
+    });
+  });
+  return requestBody;
+}
+
+async function createLogStream(logGroupName, requestBody) {
+  const body = JSON.parse(requestBody);
+  if (!body.meetingId || !body.attendeeId) {
+    throw new Error('Need parameters: meetingId, attendeeId');
+  }
+  const logStreamName = `ChimeSDKMeeting_${body.meetingId.toString()}_${body.attendeeId.toString()}`;
+  console.log(logStreamName);
+  await cloudWatchClient.createLogStream({
+    logGroupName: logGroupName,
+    logStreamName: logStreamName,
+  }).promise();
+}
+
+async function getLoadTestStatus(response) {
+  const getParams = {
+    Bucket: 'chimesdkmeetingsloadtest',
+    Key: 'src/configs/LoadTestStatus.json'
+  };
+  try {
+    const data = await s3.getObject(getParams).promise();
+    const loadTestStatus = data.Body.toString('utf-8');
+    respond(response, 200, 'application/json', loadTestStatus);
+  } catch (err) {
+    console.error('Could not read status: ', err);
+    respond(response, 400, 'application/json', JSON.stringify({}));
+  }
+}
+
+async function sendMetrics(requestBody, response) {
+  const body = JSON.parse(requestBody);
+  const meetingId = body.mId;
+  const attendeeId = body.aId;
+  const instanceId = body.iId;
+  const startTime = body.ltStartTime;
+  const sessionId = body.sId;
+  if(body.hasOwnProperty('metricBody')) {
+    const metricBody = body.metricBody;
+    for (const [metricName, metricValue] of Object.entries(metricBody)) {
+      console.log(`Emitting metric: ${metricName} : ` , metricValue);
+      addToCloudWatchMetrics(meetingId, attendeeId, sessionId, instanceId, startTime, metricName, metricValue);
+    }
+  } else {
+    const metricName = body.metricName;
+    const metricValue = body.metricValue;
+    addToCloudWatchMetrics(meetingId, attendeeId, sessionId, instanceId, startTime, metricName, metricValue);
+    addStatusToCloudWatchMetrics(sessionId, instanceId, startTime, metricName, metricValue);
+  }
+  respond(response, 200, 'application/json', JSON.stringify({}));
+}
+
+function addToCloudWatchMetrics(meetingId, attendeeId, sessionId, instanceId, startTime, metricName, metricValue) {
+  const putMetric =
+    metricScope(metrics => async (meetingId, attendeeId, sessionId, instanceId, startTime, metricName, metricValue) => {
+      console.log('received message');
+      metrics.putDimensions({MId: meetingId, AId: attendeeId, SId: sessionId, IId: instanceId, StartTime: startTime.toLocaleString()});
+      metrics.putMetric(metricName, metricValue);
+      console.log('completed aggregation successfully.');
+    });
+  putMetric(meetingId, attendeeId, sessionId, instanceId, startTime, metricName, metricValue);
+}
+
+function addStatusToCloudWatchMetrics(sessionId, instanceId, startTime, metricName, metricValue) {
+  const putMetric =
+    metricScope(metrics => async (sessionId, instanceId, startTime, metricName, metricValue) => {
+      console.log('received message');
+      metrics.putDimensions({SId: sessionId, IId: instanceId, StartTime: startTime.toLocaleString()});
+      metrics.putMetric(metricName, metricValue);
+      console.log('completed aggregation successfully.');
+    });
+  putMetric(sessionId, instanceId, startTime, metricName, metricValue);
+}
+
+async function logsEndpoint(logGroupName, requestBody, response) {
+  const body = JSON.parse(requestBody);
+  const namespace = 'AlivePing';
+  if (!body.logs || !body.meetingId || !body.attendeeId || !body.appName) {
+    respond(response, 400, 'application/json', JSON.stringify({error: 'Need properties: logs, meetingId, attendeeId, appName'}));
+  } else if (!body.logs.length) {
+    respond(response, 200, 'application/json', JSON.stringify({}));
+  }
+  const logStreamName = `ChimeSDKMeeting_${body.meetingId.toString()}_${body.attendeeId.toString()}`;
+  const putLogEventsInput = {
+    logGroupName: logGroupName,
+    logStreamName: logStreamName
+  };
+  const uploadSequence = await ensureLogStream(logStreamName, logGroupName);
+  if (uploadSequence) {
+    putLogEventsInput.sequenceToken = uploadSequence;
+  }
+  const logEvents = [];
+  for (let i = 0; i < body.logs.length; i++) {
+    const log = body.logs[i];
+    const timestamp = new Date(log.timestampMs).toISOString();
+    const message = `${timestamp} [${log.sequenceNumber}] [${log.logLevel}] [meeting: ${body.meetingId.toString()}] [attendee: ${body.attendeeId}]: ${log.message}`;
+    logEvents.push({
+      message: message,
+      timestamp: log.timestampMs
+    });
+  }
+
+  try {
+    if (logEvents.length > 0) {
+      putLogEventsInput.logEvents = logEvents;
+      await cloudWatchClient.putLogEvents(putLogEventsInput).promise();
+    }
+  } catch (error) {
+    const errorMessage = `Failed to put CloudWatch log events with error ${error} and params ${JSON.stringify(putLogEventsInput)}`;
+    if (error.code === 'InvalidSequenceTokenException' || error.code === 'DataAlreadyAcceptedException') {
+      console.warn(errorMessage);
+    } else {
+      console.error(errorMessage);
+    }
+  }
+  respond(response, 200, 'application/json', JSON.stringify({}));
+}
+
+async function ensureLogStream(logStreamName, logGroupName) {
+  const logStreamsResult = await cloudWatchClient.describeLogStreams({
+    logGroupName: logGroupName,
+    logStreamNamePrefix: logStreamName,
+  }).promise();
+  const foundStream = logStreamsResult.logStreams.find(s => s.logStreamName === logStreamName);
+  if (foundStream) {
+    return foundStream.uploadSequenceToken;
+  }
+  await cloudWatchClient.createLogStream({
+    logGroupName: logGroupName,
+    logStreamName: logStreamName,
+  }).promise();
+  return null;
+}
