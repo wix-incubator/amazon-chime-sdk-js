@@ -10,7 +10,8 @@ const url = require('url');
 const { v4: uuidv4 } = require('uuid');
 const { exec } = require('child_process');
 require('events').EventEmitter.prototype._maxListeners = Infinity;
-const { metricScope } = require("aws-embedded-metrics");
+const { metricScope } = require('aws-embedded-metrics');
+metricScope.logGroupName = 'LoadTest_Metrics';
 const fetch = require('node-fetch');
 let lock = false;
 AWS.config.region = 'us-east-1';
@@ -39,7 +40,7 @@ const indexPage = fs.readFileSync(`dist/${process.env.npm_config_app || 'meeting
 const chime = new AWS.Chime({ region: 'us-east-1' });
 
 // Set the AWS SDK Chime endpoint. The global endpoint is https://service.chime.aws.amazon.com.
-chime.endpoint = new AWS.Endpoint(process.env.ENDPOINT || 'https://service.chime.aws.amazon.com');
+chime.endpoint = new AWS.Endpoint('https://tapioca.us-east-1.amazonaws.com');
 
 // Start an HTTP server to serve the index page and handle meeting actions
 http.createServer({}, async (request, response) => {
@@ -54,10 +55,14 @@ http.createServer({}, async (request, response) => {
     if (request.method === 'GET' && requestUrl.pathname === '/') {
       // Return the contents of the index page
       respond(response, 200, 'text/html', indexPage);
+    } else if (request.method === 'POST' && requestUrl.pathname === '/prod_endpoint') {
+      chime.endpoint = new AWS.Endpoint(process.env.ENDPOINT || 'https://service.chime.aws.amazon.com');
+      console.log('Endpoint.... ', chime.endpoint);
     } else if (request.method === 'POST' && requestUrl.pathname === '/create_log_stream') {
       await createLogStream(logGroupName, requestBody);
     } else if (requestUrl.pathname === '/get_load_test_status') {
       await getLoadTestStatus(response);
+      console.log('Endpoint.... ', chime.endpoint);
     } else if (request.method === 'POST' && requestUrl.pathname === '/logs') {
       await logsEndpoint(logGroupName, requestBody, response);
     } else if (request.method === 'POST' && requestUrl.pathname === '/send_metrics') {
@@ -222,7 +227,7 @@ function addToCloudWatchMetrics(meetingId, attendeeId, sessionId, instanceId, st
   const putMetric =
     metricScope(metrics => async (meetingId, attendeeId, sessionId, instanceId, startTime, metricName, metricValue) => {
       console.log('received message');
-      metrics.putDimensions({MId: meetingId, AId: attendeeId, SId: sessionId, IId: instanceId, StartTime: startTime.toLocaleString()});
+      metrics.putDimensions({MId: meetingId, AId: attendeeId, SId: sessionId, IId: instanceId, StartTime: startTime?.toLocaleString()});
       metrics.putMetric(metricName, metricValue);
       console.log('completed aggregation successfully.');
     });
@@ -233,7 +238,7 @@ function addStatusToCloudWatchMetrics(sessionId, instanceId, startTime, metricNa
   const putMetric =
     metricScope(metrics => async (sessionId, instanceId, startTime, metricName, metricValue) => {
       console.log('received message');
-      metrics.putDimensions({SId: sessionId, IId: instanceId, StartTime: startTime.toLocaleString()});
+      metrics.putDimensions({SId: sessionId, IId: instanceId, StartTime: startTime?.toLocaleString()});
       metrics.putMetric(metricName, metricValue);
       console.log('completed aggregation successfully.');
     });

@@ -77,6 +77,7 @@
   "dependencies": {
     "@types/dom-mediacapture-record": "^1.0.4",
     "@types/ua-parser-js": "^0.7.33",
+    "aws-embedded-metrics": "^2.0.2",
     "detect-browser": "^5.1.0",
     "protobufjs": "~6.8.8",
     "resize-observer": "^1.0.0",
