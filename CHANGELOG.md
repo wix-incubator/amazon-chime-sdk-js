@@ -20,7 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 ### Fixed
-- [Demo] Fix audio cannot be recorded issue
+- [Demo] Fix audio cannot be recorded issue.
+- [Documentation] Corrected name for `voiceFocusInsufficientResources` in documentation.
 
 ## [2.2.1] - 2020-12-11
 
