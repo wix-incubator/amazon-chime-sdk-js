@@ -368,8 +368,14 @@ describe('DefaultAudioVideoFacade', () => {
         'realtimeUnsubscribeFromVolumeIndicator'
       );
       const arg1 = '';
-      facade.realtimeUnsubscribeFromVolumeIndicator(arg1);
-      assert(spy.calledOnceWith(arg1));
+      const arg2 = (
+        _attendeeId: string,
+        _volume: number | null,
+        _muted: boolean | null,
+        _signalStrength: number | null
+      ): void => {};
+      facade.realtimeUnsubscribeFromVolumeIndicator(arg1, arg2);
+      assert(spy.calledOnceWith(arg1, arg2));
     });
 
     it('will call realtimeSubscribeToLocalSignalStrengthChange', () => {

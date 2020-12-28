@@ -251,9 +251,18 @@ export default class DefaultAudioVideoFacade implements AudioVideoFacade {
     this.trace('realtimeSubscribeToVolumeIndicator', attendeeId);
   }
 
-  realtimeUnsubscribeFromVolumeIndicator(attendeeId: string): void {
-    this.realtimeController.realtimeUnsubscribeFromVolumeIndicator(attendeeId);
-    this.trace('realtimeUnsubscribeFromVolumeIndicator', attendeeId);
+  realtimeUnsubscribeFromVolumeIndicator(
+    attendeeId: string,
+    callback?: (
+      attendeeId: string,
+      volume: number | null,
+      muted: boolean | null,
+      signalStrength: number | null,
+      externalUserId?: string
+    ) => void
+  ): void {
+    this.realtimeController.realtimeUnsubscribeFromVolumeIndicator(attendeeId, callback);
+    this.trace('realtimeUnsubscribeFromVolumeIndicator', attendeeId, callback);
   }
 
   realtimeSubscribeToLocalSignalStrengthChange(callback: (signalStrength: number) => void): void {
