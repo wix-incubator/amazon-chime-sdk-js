@@ -289,13 +289,18 @@ export class DemoMeetingApp implements
       console.log(this.meetingInfo);
       console.log(this.attendeeInfo);
       this.sessionMeetingId = this.meetingInfo.MeetingId;
+      this.meeting = this.sessionMeetingId;
       this.sessionAttendeeId = this.attendeeInfo.AttendeeId;
       this.videoEnable = this.attendeeInfo.VideoEnable;
       (document.getElementById('inputMeeting') as HTMLInputElement).value = this.sessionMeetingId;
       (document.getElementById('inputName') as HTMLInputElement).value = this.sessionAttendeeId;
     }
 
-    if(urlParams.has('setUsingPasscode') && urlParams.has('setUsingPasscode')) {
+    if(urlParams.has('videoEnable') && urlParams.get('videoEnable')) {
+      this.videoEnable = Boolean(urlParams.get('videoEnable'));
+    }
+
+    if(urlParams.has('setUsingPasscode') && urlParams.get('setUsingPasscode')) {
       this.setUsingPasscode = JSON.parse(urlParams.get('setUsingPasscode'));
       if (this.setUsingPasscode == true) {
         new AsyncScheduler().start(async () => {
@@ -326,6 +331,9 @@ export class DemoMeetingApp implements
     const timeToWait = parseInt(timeToWaitMS, 10);
     const meetingLeaveAfterMs = new URL(window.location.href).searchParams.get('meetingLeaveAfterMs');
     const meetingLeaveAfter = parseInt(meetingLeaveAfterMs, 10);
+    this.meetingInfo === null ? (document.getElementById('inputMeeting') as HTMLInputElement).value = this.loadTestStartTime : {};
+    this.meetingInfo === null ? this.meeting = this.loadTestStartTime : {};
+    this.attendeeInfo === null ? (document.getElementById('inputName') as HTMLInputElement).value = this.loadTestStartTime + meetingLeaveAfter : {};
     this.startMeetingSession(timeToWait);
     this.endMeetingSession(meetingLeaveAfter);
   }
@@ -2102,7 +2110,7 @@ export class DemoMeetingApp implements
   }
 
   async authenticate(): Promise<string> {
-    let joinInfo = (await this.getMeetingAttendeeInfo()).JoinInfo;
+    const joinInfo = this.meetingInfo && this.attendeeInfo ? (await this.getMeetingAttendeeInfo()).JoinInfo : (await this.joinMeeting()).JoinInfo;
     const configuration = new MeetingSessionConfiguration(joinInfo.Meeting, joinInfo.Attendee);
     await this.initializeMeetingSession(configuration);
     const url = new URL(window.location.href);
@@ -2177,7 +2185,7 @@ export class DemoMeetingApp implements
       return;
     }
     const tileIndex = tileState.localTile
-      ? 16
+      ? 50
       : this.tileOrganizer.acquireTileIndex(tileState.tileId);
     const tileElement = document.getElementById(`tile-${tileIndex}`) as HTMLDivElement;
     const videoElement = document.getElementById(`video-${tileIndex}`) as HTMLVideoElement;

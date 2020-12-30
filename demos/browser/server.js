@@ -11,7 +11,6 @@ const { v4: uuidv4 } = require('uuid');
 const { exec } = require('child_process');
 require('events').EventEmitter.prototype._maxListeners = Infinity;
 const { metricScope } = require('aws-embedded-metrics');
-metricScope.logGroupName = 'LoadTest_Metrics';
 const fetch = require('node-fetch');
 let lock = false;
 AWS.config.region = 'us-east-1';
@@ -58,8 +57,8 @@ http.createServer({}, async (request, response) => {
     } else if (request.method === 'POST' && requestUrl.pathname === '/prod_endpoint') {
       chime.endpoint = new AWS.Endpoint(process.env.ENDPOINT || 'https://service.chime.aws.amazon.com');
       console.log('Endpoint.... ', chime.endpoint);
-    } else if (request.method === 'POST' && requestUrl.pathname === '/create_log_stream') {
-      await createLogStream(logGroupName, requestBody);
+    // } else if (request.method === 'POST' && requestUrl.pathname === '/create_log_stream') {
+    //   await createLogStream(logGroupName, requestBody);
     } else if (requestUrl.pathname === '/get_load_test_status') {
       await getLoadTestStatus(response);
       console.log('Endpoint.... ', chime.endpoint);
@@ -224,6 +223,7 @@ async function sendMetrics(requestBody, response) {
 }
 
 function addToCloudWatchMetrics(meetingId, attendeeId, sessionId, instanceId, startTime, metricName, metricValue) {
+  metricScope.logGroupName = 'LoadTest_Metrics';
   const putMetric =
     metricScope(metrics => async (meetingId, attendeeId, sessionId, instanceId, startTime, metricName, metricValue) => {
       console.log('received message');
@@ -235,6 +235,7 @@ function addToCloudWatchMetrics(meetingId, attendeeId, sessionId, instanceId, st
 }
 
 function addStatusToCloudWatchMetrics(sessionId, instanceId, startTime, metricName, metricValue) {
+  metricScope.logGroupName = 'LoadTest_Metrics';
   const putMetric =
     metricScope(metrics => async (sessionId, instanceId, startTime, metricName, metricValue) => {
       console.log('received message');
