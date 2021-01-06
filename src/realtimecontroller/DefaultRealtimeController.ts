@@ -268,9 +268,24 @@ export default class DefaultRealtimeController implements RealtimeController {
     }
   }
 
-  realtimeUnsubscribeFromVolumeIndicator(attendeeId: string): void {
+  realtimeUnsubscribeFromVolumeIndicator(
+    attendeeId: string,
+    callback: (
+      attendeeId: string,
+      volume: number | null,
+      muted: boolean | null,
+      signalStrength: number | null,
+      externalUserId?: string
+    ) => void
+  ): void {
     try {
-      delete this.state.volumeIndicatorCallbacks[attendeeId];
+      const attendeeCallbacks = this.state.volumeIndicatorCallbacks[attendeeId] || [];
+      const callbackIndex = attendeeCallbacks.indexOf(callback);
+      if (callbackIndex > -1) {
+        console.log('Before remove: ', this.state.volumeIndicatorCallbacks[attendeeId].length);
+        attendeeCallbacks.splice(callbackIndex, 1);
+        console.log('After remove: ', this.state.volumeIndicatorCallbacks[attendeeId].length);
+      }
     } catch (e) {
       this.onError(e);
     }
