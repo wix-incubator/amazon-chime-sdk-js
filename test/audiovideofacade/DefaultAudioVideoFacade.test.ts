@@ -369,8 +369,17 @@ describe('DefaultAudioVideoFacade', () => {
         'realtimeUnsubscribeFromVolumeIndicator'
       );
       const arg1 = '';
-      facade.realtimeUnsubscribeFromVolumeIndicator(arg1);
-      assert(spy.calledOnceWith(arg1));
+      const arg2 = (
+        attendeeId: string,
+        volume: number | null,
+        muted: boolean | null,
+        signalStrength: number | null,
+        externalUserId?: string
+      ): void => {
+        console.log(attendeeId, volume, muted, signalStrength, externalUserId);
+      };
+      facade.realtimeUnsubscribeFromVolumeIndicator(arg1, arg2);
+      assert(spy.calledOnceWith(arg1, arg2));
     });
 
     it('will call realtimeUnsubscribeFromVolumeIndicator with 2 arguments', () => {
