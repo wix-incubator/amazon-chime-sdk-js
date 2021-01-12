@@ -59,9 +59,8 @@ export default class DefaultAudioMixController implements AudioMixController {
      * Read more: https://caniuse.com/?search=setSinkId
      */
     if (device && !this.browserBehavior.supportsSetSinkId()) {
-      throw new Error(
-        'Cannot select audio output device. This browser does not support setSinkId.'
-      );
+      console.log('Cannot select audio output device. This browser does not support setSinkId.');
+      return;
     }
 
     // Always set device -- we might be setting it back to `null` to reselect
@@ -90,9 +89,8 @@ export default class DefaultAudioMixController implements AudioMixController {
       shouldSetSinkId &&
       typeof (this.audioElement as AudioElementWithSinkId).sinkId === 'undefined'
     ) {
-      throw new Error(
-        'Cannot select audio output device. This browser does not support setSinkId.'
-      );
+      console.log('Cannot select audio output device. This browser does not support setSinkId.');
+      return;
     }
 
     const newSinkId = this.audioDevice ? this.audioDevice.deviceId : '';
