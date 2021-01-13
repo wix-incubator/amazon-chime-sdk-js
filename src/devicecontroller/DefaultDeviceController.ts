@@ -61,15 +61,17 @@ export default class DefaultDeviceController implements DeviceControllerBasedMed
   private videoInputQualitySettings: VideoQualitySettings = null;
 
   private readonly useWebAudio: boolean = false;
+  private readonly spectator: boolean = false;
 
   private inputDeviceCount: number = 0;
   private lastNoVideoInputDeviceCount: number;
 
   private browserBehavior: DefaultBrowserBehavior = new DefaultBrowserBehavior();
 
-  constructor(private logger: Logger, options?: { enableWebAudio?: boolean }) {
-    const { enableWebAudio = false } = options || {};
+  constructor(private logger: Logger, options?: { enableWebAudio?: boolean; spectator?: boolean }) {
+    const { enableWebAudio = false, spectator = false } = options || {};
     this.useWebAudio = enableWebAudio;
+    this.spectator = spectator;
 
     this.muteCallback = (muted: boolean) => {
       this.transform?.device.mute(muted);
@@ -670,7 +672,8 @@ export default class DefaultDeviceController implements DeviceControllerBasedMed
   }
 
   private async updateDeviceInfoCacheFromBrowser(): Promise<void> {
-    const doesNotHaveAccessToMediaDevices = typeof MediaDeviceInfo === 'undefined';
+    const doesNotHaveAccessToMediaDevices =
+      typeof MediaDeviceInfo === 'undefined' || this.spectator;
     if (doesNotHaveAccessToMediaDevices) {
       this.deviceInfoCache = [];
       return;
