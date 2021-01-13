@@ -22,12 +22,6 @@ describe('Versioning', () => {
     });
   });
 
-  describe('#sdkVersion', () => {
-    it('is semver', () => {
-      expect(Versioning.sdkVersion).to.match(VERSION_RE);
-    });
-  });
-
   describe('the testing version regex', () => {
     it('matches a version', () => {
       expect('1.0.0').to.match(VERSION_RE);

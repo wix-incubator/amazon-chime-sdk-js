@@ -486,7 +486,16 @@ describe('DefaultRealtimeController', () => {
       );
       expect(callbackFired).to.be.false;
       callbackFired = false;
-      rt.realtimeUnsubscribeFromVolumeIndicator(sentAttendeeId);
+      const arg2 = (
+        attendeeId: string,
+        volume: number | null,
+        muted: boolean | null,
+        signalStrength: number | null,
+        externalUserId?: string
+      ): void => {
+        console.log(attendeeId, volume, muted, signalStrength, externalUserId);
+      };
+      rt.realtimeUnsubscribeFromVolumeIndicator(sentAttendeeId, arg2);
       expect(callbackFired).to.be.false;
     });
 
@@ -1092,17 +1101,16 @@ describe('DefaultRealtimeController', () => {
       rt.realtimeSubscribeToAttendeeIdPresence(AttendeeIdPresenceCallback);
       rt.realtimeSubscribeToSetCanUnmuteLocalAudio(SetCanUnmuteLocalAudioCallback);
       rt.realtimeSubscribeToMuteAndUnmuteLocalAudio(MuteAndUnmuteLocalAudioCallback);
-      rt.realtimeSubscribeToVolumeIndicator(
-        'fakeAttendeeId',
-        (
-          _attendeeId: string,
-          _volume: number | null,
-          _muted: boolean | null,
-          _signalStrength: number | null
-        ) => {
-          callbacksRemoved = false;
-        }
-      );
+      const arg2 = (
+        attendeeId: string,
+        volume: number | null,
+        muted: boolean | null,
+        signalStrength: number | null,
+        externalUserId?: string
+      ): void => {
+        console.log(attendeeId, volume, muted, signalStrength, externalUserId);
+      };
+      rt.realtimeSubscribeToVolumeIndicator('fakeAttendeeId', arg2);
       rt.realtimeSubscribeToLocalSignalStrengthChange(LocalSignalStrengthChangeCallback);
       rt.realtimeSubscribeToSendDataMessage(SendDataMessageCallback);
       rt.realtimeSubscribeToReceiveDataMessage('topic', ReceiveDataMessageCallback);
@@ -1118,7 +1126,7 @@ describe('DefaultRealtimeController', () => {
       rt.realtimeUnsubscribeToAttendeeIdPresence(AttendeeIdPresenceCallback);
       rt.realtimeUnsubscribeToSetCanUnmuteLocalAudio(SetCanUnmuteLocalAudioCallback);
       rt.realtimeUnsubscribeToMuteAndUnmuteLocalAudio(MuteAndUnmuteLocalAudioCallback);
-      rt.realtimeUnsubscribeFromVolumeIndicator('fakeAttendeeId');
+      rt.realtimeUnsubscribeFromVolumeIndicator('fakeAttendeeId', arg2);
       rt.realtimeUnsubscribeToLocalSignalStrengthChange(LocalSignalStrengthChangeCallback);
       rt.realtimeUnsubscribeFromSendDataMessage(SendDataMessageCallback);
       rt.realtimeUnsubscribeFromReceiveDataMessage('topic');

@@ -28,6 +28,8 @@ export default class DefaultDeviceController implements DeviceControllerBasedMed
   private static defaultChannelCount = 1;
   private static audioContext: AudioContext | null = null;
 
+  private readonly spectator: boolean = false;
+
   private deviceInfoCache: MediaDeviceInfo[] | null = null;
   private activeDevices: { [kind: string]: DeviceSelection | null } = { audio: null, video: null };
   private audioOutputDeviceId: string | null = null;
@@ -48,13 +50,16 @@ export default class DefaultDeviceController implements DeviceControllerBasedMed
 
   private browserBehavior: DefaultBrowserBehavior = new DefaultBrowserBehavior();
 
-  constructor(private logger: Logger) {
+  constructor(private logger: Logger, options?: { enableWebAudio?: boolean; spectator?: boolean }) {
+    /* istanbul ignore next */
+    const { spectator = false } = options || {};
     this.videoInputQualitySettings = new VideoQualitySettings(
       DefaultDeviceController.defaultVideoWidth,
       DefaultDeviceController.defaultVideoHeight,
       DefaultDeviceController.defaultVideoFrameRate,
       DefaultDeviceController.defaultVideoMaxBandwidthKbps
     );
+    this.spectator = spectator;
 
     const dimension = this.browserBehavior.requiresResolutionAlignment(
       this.videoInputQualitySettings.videoWidth,
@@ -442,7 +447,9 @@ export default class DefaultDeviceController implements DeviceControllerBasedMed
   }
 
   private async updateDeviceInfoCacheFromBrowser(): Promise<void> {
-    const doesNotHaveAccessToMediaDevices = !MediaDeviceInfo;
+    /* istanbul ignore next */
+    const doesNotHaveAccessToMediaDevices = !MediaDeviceInfo || this.spectator;
+    /* istanbul ignore next */
     if (doesNotHaveAccessToMediaDevices) {
       this.deviceInfoCache = [];
       return;
