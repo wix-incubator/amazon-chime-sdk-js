@@ -6,6 +6,7 @@ import RealtimeAttendeePositionInFrame from './RealtimeAttendeePositionInFrame';
 import RealtimeController from './RealtimeController';
 import RealtimeState from './RealtimeState';
 import RealtimeVolumeIndicator from './RealtimeVolumeIndicator';
+import type VolumeIndicatorCallback from './VolumeIndicatorCallback';
 
 /**
  * [[DefaultRealtimeController]] is written to adhere to the following tenets to
@@ -241,16 +242,7 @@ export default class DefaultRealtimeController implements RealtimeController {
 
   // Volume Indicators
 
-  realtimeSubscribeToVolumeIndicator(
-    attendeeId: string,
-    callback: (
-      attendeeId: string,
-      volume: number | null,
-      muted: boolean | null,
-      signalStrength: number | null,
-      externalUserId?: string
-    ) => void
-  ): void {
+  realtimeSubscribeToVolumeIndicator(attendeeId: string, callback: VolumeIndicatorCallback): void {
     try {
       if (!this.state.volumeIndicatorCallbacks.hasOwnProperty(attendeeId)) {
         this.state.volumeIndicatorCallbacks[attendeeId] = [];
@@ -270,21 +262,16 @@ export default class DefaultRealtimeController implements RealtimeController {
 
   realtimeUnsubscribeFromVolumeIndicator(
     attendeeId: string,
-    callback: (
-      attendeeId: string,
-      volume: number | null,
-      muted: boolean | null,
-      signalStrength: number | null,
-      externalUserId?: string
-    ) => void
+    callback?: VolumeIndicatorCallback
   ): void {
     try {
-      const attendeeCallbacks = this.state.volumeIndicatorCallbacks[attendeeId] || [];
-      const callbackIndex = attendeeCallbacks.indexOf(callback);
-      if (callbackIndex > -1) {
-        console.log('Before remove: ', this.state.volumeIndicatorCallbacks[attendeeId].length);
-        attendeeCallbacks.splice(callbackIndex, 1);
-        console.log('After remove: ', this.state.volumeIndicatorCallbacks[attendeeId].length);
+      if (callback) {
+        const index = this.state.volumeIndicatorCallbacks[attendeeId].indexOf(callback);
+        if (index !== -1) {
+          this.state.volumeIndicatorCallbacks[attendeeId].splice(index, 1);
+        }
+      } else {
+        delete this.state.volumeIndicatorCallbacks[attendeeId];
       }
     } catch (e) {
       this.onError(e);
