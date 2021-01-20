@@ -469,20 +469,21 @@ describe('DefaultRealtimeController', () => {
       const sentMuted = false;
       const sentSignalStrength = 1;
       let callbackFired = false;
-      const callback = (
-        attendeeId: string,
-        volume: number | null,
-        muted: boolean | null,
-        signalStrength: number | null
-      ): void => {
-        callbackFired = true;
-        expect(attendeeId).to.equal(sentAttendeeId);
-        expect(volume).to.equal(sentVolume);
-        expect(muted).to.equal(sentMuted);
-        expect(signalStrength).to.equal(sentSignalStrength);
-      };
-
-      rt.realtimeSubscribeToVolumeIndicator(sentAttendeeId, callback);
+      rt.realtimeSubscribeToVolumeIndicator(
+        sentAttendeeId,
+        (
+          attendeeId: string,
+          volume: number | null,
+          muted: boolean | null,
+          signalStrength: number | null
+        ) => {
+          callbackFired = true;
+          expect(attendeeId).to.equal(sentAttendeeId);
+          expect(volume).to.equal(sentVolume);
+          expect(muted).to.equal(sentMuted);
+          expect(signalStrength).to.equal(sentSignalStrength);
+        }
+      );
       rt.realtimeUpdateVolumeIndicator(
         sentAttendeeId,
         sentVolume,
@@ -501,6 +502,12 @@ describe('DefaultRealtimeController', () => {
       );
       expect(callbackFired).to.be.false;
       callbackFired = false;
+      const callback = (
+        _attendeeId: string,
+        _volume: number | null,
+        _muted: boolean | null,
+        _signalStrength: number | null
+      ): void => {};
       rt.realtimeUnsubscribeFromVolumeIndicator(sentAttendeeId, callback);
       expect(callbackFired).to.be.false;
     });
@@ -535,6 +542,71 @@ describe('DefaultRealtimeController', () => {
         }
       );
       expect(callbackFired).to.be.true;
+    });
+
+    it('will unsubscribe from a given callback if provided', () => {
+      const rt: RealtimeController = new DefaultRealtimeController();
+      const fooAttendeeId = 'foo-attendee';
+      const sentVolume = 0.5;
+      const sentMuted = false;
+      const sentSignalStrength = 1;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const state: RealtimeState = ((rt as unknown) as any).state as RealtimeState;
+      state.volumeIndicatorCallbacks = {};
+      const callback1 = (
+        attendeeId: string,
+        volume: number | null,
+        muted: boolean | null,
+        signalStrength: number | null
+      ): void => {
+        expect(attendeeId).to.equal(fooAttendeeId);
+        expect(volume).to.equal(sentVolume);
+        expect(muted).to.equal(sentMuted);
+        expect(signalStrength).to.equal(sentSignalStrength);
+      };
+      const callback2 = (
+        attendeeId: string,
+        volume: number | null,
+        muted: boolean | null,
+        signalStrength: number | null
+      ): void => {
+        expect(attendeeId).to.equal(fooAttendeeId);
+        expect(volume).to.not.equal('');
+        expect(muted).to.not.equal('');
+        expect(signalStrength).to.not.equal('');
+      };
+      rt.realtimeSubscribeToVolumeIndicator(fooAttendeeId, callback1);
+      rt.realtimeSubscribeToVolumeIndicator(fooAttendeeId, callback2);
+      rt.realtimeUnsubscribeFromVolumeIndicator(fooAttendeeId, callback2);
+      expect(state.volumeIndicatorCallbacks[fooAttendeeId].indexOf(callback1)).to.equal(0);
+      expect(state.volumeIndicatorCallbacks[fooAttendeeId].indexOf(callback2)).to.equal(-1);
+    });
+
+    it('will not error if unsubscribed from a missing callback', () => {
+      const rt: RealtimeController = new DefaultRealtimeController();
+      const fooAttendeeId = 'foo-attendee';
+      const sentVolume = 0.5;
+      const sentMuted = false;
+      const sentSignalStrength = 1;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const state: RealtimeState = ((rt as unknown) as any).state as RealtimeState;
+      state.volumeIndicatorCallbacks = {};
+      const callback = (
+        attendeeId: string,
+        volume: number | null,
+        muted: boolean | null,
+        signalStrength: number | null
+      ): void => {
+        expect(attendeeId).to.equal(fooAttendeeId);
+        expect(volume).to.equal(sentVolume);
+        expect(muted).to.equal(sentMuted);
+        expect(signalStrength).to.equal(sentSignalStrength);
+      };
+      rt.realtimeSubscribeToVolumeIndicator(fooAttendeeId, callback);
+      rt.realtimeUnsubscribeFromVolumeIndicator(fooAttendeeId, callback);
+      const expectedResult = state.volumeIndicatorCallbacks;
+      rt.realtimeUnsubscribeFromVolumeIndicator(fooAttendeeId, callback);
+      expect(state.volumeIndicatorCallbacks).to.equal(expectedResult);
     });
 
     it('will tolerate an exception thrown in a volume indicator callback', () => {
@@ -1107,16 +1179,17 @@ describe('DefaultRealtimeController', () => {
       rt.realtimeSubscribeToAttendeeIdPresence(AttendeeIdPresenceCallback);
       rt.realtimeSubscribeToSetCanUnmuteLocalAudio(SetCanUnmuteLocalAudioCallback);
       rt.realtimeSubscribeToMuteAndUnmuteLocalAudio(MuteAndUnmuteLocalAudioCallback);
-      const callback = (
-        _attendeeId: string,
-        _volume: number | null,
-        _muted: boolean | null,
-        _signalStrength: number | null
-      ): void => {
-        callbacksRemoved = false;
-      };
-
-      rt.realtimeSubscribeToVolumeIndicator('fakeAttendeeId', callback);
+      rt.realtimeSubscribeToVolumeIndicator(
+        'fakeAttendeeId',
+        (
+          _attendeeId: string,
+          _volume: number | null,
+          _muted: boolean | null,
+          _signalStrength: number | null
+        ) => {
+          callbacksRemoved = false;
+        }
+      );
       rt.realtimeSubscribeToLocalSignalStrengthChange(LocalSignalStrengthChangeCallback);
       rt.realtimeSubscribeToSendDataMessage(SendDataMessageCallback);
       rt.realtimeSubscribeToReceiveDataMessage('topic', ReceiveDataMessageCallback);
@@ -1132,7 +1205,7 @@ describe('DefaultRealtimeController', () => {
       rt.realtimeUnsubscribeToAttendeeIdPresence(AttendeeIdPresenceCallback);
       rt.realtimeUnsubscribeToSetCanUnmuteLocalAudio(SetCanUnmuteLocalAudioCallback);
       rt.realtimeUnsubscribeToMuteAndUnmuteLocalAudio(MuteAndUnmuteLocalAudioCallback);
-      rt.realtimeUnsubscribeFromVolumeIndicator('fakeAttendeeId', callback);
+      rt.realtimeUnsubscribeFromVolumeIndicator('fakeAttendeeId');
       rt.realtimeUnsubscribeToLocalSignalStrengthChange(LocalSignalStrengthChangeCallback);
       rt.realtimeUnsubscribeFromSendDataMessage(SendDataMessageCallback);
       rt.realtimeUnsubscribeFromReceiveDataMessage('topic');
@@ -1238,16 +1311,15 @@ describe('DefaultRealtimeController', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const state: RealtimeState = ((rt as unknown) as any).state as RealtimeState;
       state.volumeIndicatorCallbacks = undefined;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const callback = (_a: any, _v: any, _m: any, _s: any): void => {};
-      rt.realtimeSubscribeToVolumeIndicator('a', callback);
+
+      rt.realtimeSubscribeToVolumeIndicator('a', (_a, _v, _m, _s) => {});
       expect(fatal.calledOnce).to.be.true;
       const match = matchError("Cannot read property 'hasOwnProperty' of undefined");
       expect(fatal.calledWith(match)).to.be.true;
       fatal.reset();
 
-      rt.realtimeUnsubscribeFromVolumeIndicator('a', callback);
-      const matchUn = matchError("Cannot read property 'a' of undefined");
+      rt.realtimeUnsubscribeFromVolumeIndicator('a');
+      const matchUn = matchError('Cannot convert undefined or null to object');
       expect(fatal.calledWith(matchUn)).to.be.true;
     });
 

@@ -287,8 +287,10 @@ export class DemoMeetingApp
 
     // Listen for unhandled errors, too.
     window.addEventListener('error', event => {
-      fatal(event.error);
+      // In Safari there's only a message.
+      fatal(event.error || event.message);
     });
+
     window.onunhandledrejection = (event: PromiseRejectionEvent) => {
       fatal(event.reason);
     };
@@ -324,7 +326,7 @@ export class DemoMeetingApp
    * when an unexpected error occurs.
    * If we're running locally, or we passed a `fatal=1` query parameter, fail hard.
    */
-  fatal(e: Error): void {
+  fatal(e: Error | string): void {
     // Muffle mode: let the `try-catch` do its job.
     if (!SHOULD_DIE_ON_FATALS) {
       console.info('Ignoring fatal', e);
@@ -332,7 +334,12 @@ export class DemoMeetingApp
     }
 
     console.error('Fatal error: this was going to be caught, but should not have been thrown.', e);
-    document.getElementById('stack').innerText = e.message + '\n' + e.stack?.toString();
+
+    if (e && e instanceof Error) {
+      document.getElementById('stack').innerText = e.message + '\n' + e.stack?.toString();
+    } else {
+      document.getElementById('stack').innerText = '' + e;
+    }
 
     this.switchToFlow('flow-fatal');
   }
@@ -1737,13 +1744,24 @@ export class DemoMeetingApp
           return;
         }
         try {
-          await this.audioVideo.chooseAudioOutputDevice(name);
+          await this.chooseAudioOutputDevice(name);
         } catch (e) {
           fatal(e);
           this.log('Failed to chooseAudioOutputDevice', e);
         }
       }
     );
+  }
+
+  private async chooseAudioOutputDevice(device: string): Promise<void> {
+    // Set it for the content share stream if we can.
+    const videoElem = document.getElementById('content-share-video') as HTMLVideoElement;
+    if (this.defaultBrowserBehaviour.supportsSetSinkId()) {
+      // @ts-ignore
+      videoElem.setSinkId(device);
+    }
+
+    await this.audioVideo.chooseAudioOutputDevice(device);
   }
 
   private analyserNodeCallback = () => {};
@@ -1858,7 +1876,7 @@ export class DemoMeetingApp
     if (this.defaultBrowserBehaviour.supportsSetSinkId()) {
       try {
         const audioOutput = document.getElementById('audio-output') as HTMLSelectElement;
-        await this.audioVideo.chooseAudioOutputDevice(audioOutput.value);
+        await this.chooseAudioOutputDevice(audioOutput.value);
       } catch (e) {
         fatal(e);
         this.log('failed to chooseAudioOutputDevice', e);
