@@ -14,7 +14,6 @@ import NotFoundError from '../../src/devicecontroller/NotFoundError';
 import NotReadableError from '../../src/devicecontroller/NotReadableError';
 import OverconstrainedError from '../../src/devicecontroller/OverconstrainedError';
 import PermissionDeniedError from '../../src/devicecontroller/PermissionDeniedError';
-import TypeError from '../../src/devicecontroller/TypeError';
 import VideoInputDevice from '../../src/devicecontroller/VideoInputDevice';
 import EventAttributes from '../../src/eventcontroller/EventAttributes';
 import EventName from '../../src/eventcontroller/EventName';
@@ -895,8 +894,7 @@ describe('DefaultDeviceController', () => {
         await deviceController.chooseVideoInputDevice(stringDeviceId);
         throw new Error('This line should not be reached');
       } catch (e) {
-        expect(e).to.be.instanceof(TypeError);
-        expect(e.message).to.not.equal('This line should not be reached');
+        expect(e.message).to.equal('This line should not be reached');
       }
     });
 
@@ -1047,9 +1045,7 @@ describe('DefaultDeviceController', () => {
       try {
         await deviceController.chooseVideoInputDevice(device);
         throw new Error('This line should not be reached');
-      } catch (e) {
-        expect(e).to.be.instanceof(TypeError);
-      }
+      } catch (e) {}
       expect(handleEventSpy.called).to.be.true;
     });
 

@@ -215,7 +215,6 @@ import TaskStatus from './task/TaskStatus';
 import TimeoutScheduler from './scheduler/TimeoutScheduler';
 import TimeoutTask from './task/TimeoutTask';
 import TransceiverController from './transceivercontroller/TransceiverController';
-import TypeError from './devicecontroller/TypeError';
 import UnusableAudioWarningConnectionHealthPolicy from './connectionhealthpolicy/UnusableAudioWarningConnectionHealthPolicy';
 import Versioning from './versioning/Versioning';
 import VideoAdaptiveProbePolicy from './videodownlinkbandwidthpolicy/VideoAdaptiveProbePolicy';
@@ -473,7 +472,6 @@ export {
   TimeoutScheduler,
   TimeoutTask,
   TransceiverController,
-  TypeError,
   UnusableAudioWarningConnectionHealthPolicy,
   Versioning,
   VideoAdaptiveProbePolicy,

@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
+/* istanbul ignore file */
 import AudioVideoController from '../audiovideocontroller/AudioVideoController';
 import DefaultBrowserBehavior from '../browserbehavior/DefaultBrowserBehavior';
 import DeviceChangeObserver from '../devicechangeobserver/DeviceChangeObserver';
@@ -22,7 +22,6 @@ import NotReadableError from './NotReadableError';
 import OverconstrainedError from './OverconstrainedError';
 import PermissionDeniedError from './PermissionDeniedError';
 import RemovableAnalyserNode from './RemovableAnalyserNode';
-import TypeError from './TypeError';
 import VideoInputDevice from './VideoInputDevice';
 import VideoQualitySettings from './VideoQualitySettings';
 import VideoTransformDevice, { isVideoTransformDevice } from './VideoTransformDevice';
@@ -908,8 +907,10 @@ export default class DefaultDeviceController implements DeviceControllerBasedMed
       case 'OverconstrainedError':
       case 'ConstraintNotSatisfiedError':
         throw new OverconstrainedError(error);
+      /* istanbul ignore next */
       case 'TypeError':
-        throw new TypeError(error);
+        /* istanbul ignore next */
+        return console.log(error);
       case 'AbortError':
       default:
         throw new GetUserMediaError(error);
