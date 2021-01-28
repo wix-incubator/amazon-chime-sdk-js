@@ -1,10 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.default = {
-    "dirty": false,
-    "raw": "v1.22.0-2-g36bf8e9",
-    "hash": "g36bf8e9",
-    "distance": 2,
+    "dirty": true,
+    "raw": "v1.22.0-3-gc04fcf1-dirty",
+    "hash": "gc04fcf1",
+    "distance": 3,
     "tag": "v1.22.0",
     "semver": {
         "options": {
@@ -20,7 +20,7 @@ exports.default = {
         "build": [],
         "version": "1.22.0"
     },
-    "suffix": "2-g36bf8e9",
-    "semverString": "1.22.0+2.g36bf8e9"
+    "suffix": "3-gc04fcf1-dirty",
+    "semverString": "1.22.0+3.gc04fcf1.dirty"
 };
 //# sourceMappingURL=version.js.map

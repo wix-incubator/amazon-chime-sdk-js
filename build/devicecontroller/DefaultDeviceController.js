@@ -1094,7 +1094,7 @@ var DefaultDeviceController = /** @class */ (function () {
                 options.sampleRate = DefaultDeviceController.defaultSampleRate;
             }
             // @ts-ignore
-            DefaultDeviceController.audioContext = new (window.AudioContext || window.webkitAudioContext)(options);
+            DefaultDeviceController.audioContext = window.wixLiveVideoAudioContext || (new (window.AudioContext || window.webkitAudioContext)(options));
         }
         return DefaultDeviceController.audioContext;
     };
