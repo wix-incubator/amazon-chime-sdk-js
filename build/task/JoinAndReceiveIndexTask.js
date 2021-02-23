@@ -69,7 +69,7 @@ var JoinAndReceiveIndexTask = /** @class */ (function (_super) {
         _this.context = context;
         _this.taskName = 'JoinAndReceiveIndexTask';
         _this.taskCanceler = null;
-        _this.maxVideos = 16;
+        _this.maxVideos = 25;
         return _this;
     }
     JoinAndReceiveIndexTask.prototype.cancel = function () {
