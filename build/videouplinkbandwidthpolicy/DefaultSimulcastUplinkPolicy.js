@@ -153,7 +153,7 @@ var DefaultSimulcastUplinkPolicy = /** @class */ (function () {
         // scaling changes.  Always use 720p for now
         var trackConstraint = {
             width: { ideal: 1280 },
-            height: { ideal: 768 },
+            height: { ideal: 720 },
             frameRate: { ideal: 15 },
         };
         return trackConstraint;
@@ -246,7 +246,7 @@ var DefaultSimulcastUplinkPolicy = /** @class */ (function () {
     };
     DefaultSimulcastUplinkPolicy.prototype.captureHeight = function () {
         // should deprecate in this policy
-        var height = 768;
+        var height = 720;
         return height;
     };
     DefaultSimulcastUplinkPolicy.prototype.captureFrameRate = function () {
