@@ -179,7 +179,7 @@ export default class DefaultSimulcastUplinkPolicy implements SimulcastUplinkPoli
     // scaling changes.  Always use 720p for now
     const trackConstraint: MediaTrackConstraints = {
       width: { ideal: 1280 },
-      height: { ideal: 768 },
+      height: { ideal: 720 },
       frameRate: { ideal: 15 },
     };
     return trackConstraint;
@@ -287,7 +287,7 @@ export default class DefaultSimulcastUplinkPolicy implements SimulcastUplinkPoli
 
   private captureHeight(): number {
     // should deprecate in this policy
-    const height = 768;
+    const height = 720;
     return height;
   }
 
